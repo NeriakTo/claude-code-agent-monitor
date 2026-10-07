@@ -241,11 +241,20 @@ const quotaCard = (m: Model, inner: number, timeZone: string): Card => {
   ]
   if (lines.length === 0) lines.push(muted('no quota readings yet'))
   const topRuns = (row: QuotaLine): Run[] => [{ text: `${percentText(row)}${quotaFlag(row)}`, tone: quotaTone(row), bold: row.level !== 'normal' }]
+  // The badge is context use, colored by its level with `!`/`!!` past the context lines; the tightest quota until a context reading comes.
+  const c = m.context
+  const ctxFlag = c === null ? '' : c.level === 'error' ? '!!' : c.level === 'warning' ? '!' : ''
+  const badge: Line =
+    c !== null
+      ? [{ text: 'ctx ', tone: 'muted' }, { text: `${c.percent}%${ctxFlag}`, tone: levelTone(c.level), bold: c.level !== 'normal' }]
+      : top === null
+        ? []
+        : [{ text: 'tightest ', tone: 'muted' }, ...topRuns(top)]
   return {
     id: 'quota',
     title: 'QUOTA',
     isPinned: true,
-    badge: top === null ? [] : [{ text: 'tightest ', tone: 'muted' }, ...topRuns(top)],
+    badge,
     summary:
       top === null
         ? (lines[0] ?? [])

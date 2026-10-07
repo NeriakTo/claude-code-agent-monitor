@@ -182,3 +182,23 @@ test('render: a short pane (30 rows) crowded with cards keeps every QUOTA row wh
   expect(offList(text)).toEqual([])
   print('pane-quota-crowded-60', out)
 })
+
+test('renders: once a context reading comes, the QUOTA badge shows context use (ctx N%) at 60 and 100 columns', SAMPLE, async ($, on) => {
+  const { done } = await sampleSession($, on)
+  await $.session.measure({ context: { window: 200_000, tokens: 88_000, percent: 44 }, rateLimits: [], changed: ['context'] })
+  await monitor($, '')
+  await monitor($, 'hide inbox')
+  await monitor($, 'hide session')
+  for (const columns of [60, 100]) {
+    const ui = await $.ui.mount(pane(columns, 200))
+    const lines = renderText(await ui.drawn(), columns)
+    await ui.unmount()
+    const text = lines.join('\n')
+    expect(text).toMatch(/- QUOTA\s+ctx 44% │/)
+    expect(text).toMatch(/│ Claude week\s+■■■■■■····\s+61%/)
+    for (const l of lines) expect([...l].length, `${columns}: ${l}`).toBeLessThanOrEqual(columns)
+    expect(offList(text)).toEqual([])
+    print(`pane-quota-ctx-${columns}`, lines)
+  }
+  await done()
+})

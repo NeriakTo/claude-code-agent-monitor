@@ -120,9 +120,9 @@ export const restartRun = (m: Model): Run | null =>
 
 // ---------- quota figures, shared by the band and the pane ----------
 
-/** The tone a quota figure takes: neutral below the warning line, gray when stale. */
+/** The tone a quota figure takes: green below the warning line, yellow past it, red past the critical one, gray when stale. */
 export const quotaTone = (row: QuotaLine): Tone =>
-  row.isStale ? 'muted' : row.level === 'error' ? 'critical' : row.level === 'warning' ? 'warn' : 'plain'
+  row.isStale ? 'muted' : row.level === 'error' ? 'critical' : row.level === 'warning' ? 'warn' : 'ok'
 
 /** `!` past the warning line, `!!` past the critical one, so the state never rests on color alone. */
 export const quotaFlag = (row: QuotaLine): string => (row.isStale ? '' : row.level === 'error' ? '!!' : row.level === 'warning' ? '!' : '')

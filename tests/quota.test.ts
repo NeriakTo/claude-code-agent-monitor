@@ -284,9 +284,64 @@ test('gauges: filled squares and a dim dotted track, no shading or full blocks; 
     for (const l of out) expect([...l].length).toBeLessThanOrEqual(columns)
   }
   const ui = await $.ui.mount(pane(100, 200))
-  // Below the warning line the filled squares keep the neutral color: neither colored nor dim.
+  // Below the warning line the filled squares are green (the ok tone), never dim.
   const filled = (await ui.find({ type: 'Text', text: '■■■■■■' }))?.props ?? {}
-  expect([filled['color'], filled['dimColor']]).toEqual([undefined, undefined])
+  expect([filled['color'], filled['dimColor']]).toEqual(['green', undefined])
   expect((await ui.find({ type: 'Text', text: '····' }))?.props).toMatchObject({ dimColor: true })
+  await ui.unmount()
+})
+
+test('below the warning line a fresh quota row is green: the filled squares and the percent share the ok tone; the track stays dim', { options: { timeZone: 'Asia/Singapore' } }, async ($, on) => {
+  const w = world(on)
+  w.rateLimits = CLAUDE
+  await start($)
+  await toggle($)
+  const ui = await $.ui.mount(pane(100, 200))
+  for (const percent of ['58%', '61%']) {
+    const props = (await ui.find({ type: 'Text', text: new RegExp(`^\\s*${percent}$`) }))?.props ?? {}
+    expect([props['color'], props['dimColor'], props['bold']], percent).toEqual(['green', undefined, undefined])
+  }
+  expect((await ui.find({ type: 'Text', text: '■■■■■■' }))?.props['color']).toBe('green')
+  expect((await ui.find({ type: 'Text', text: '····' }))?.props).toMatchObject({ dimColor: true })
+  await ui.unmount()
+})
+
+test('the QUOTA badge is context use, ctx N%, green below the context warning line, yellow and ! past it, red and !! past the critical one', { options: { timeZone: 'Asia/Singapore' } }, async ($, on) => {
+  const w = world(on)
+  w.rateLimits = CLAUDE
+  await start($)
+  await toggle($)
+  const measure = (percent: number) =>
+    $.session.measure({ context: { window: 200_000, tokens: percent * 2000, percent }, rateLimits: [], changed: ['context'] })
+  const cases: [number, string, string, boolean | undefined][] = [
+    [40, '40%', 'green', undefined],
+    [72, '72%!', 'yellow', true],
+    [90, '90%!!', 'red', true],
+  ]
+  for (const [percent, text, color, bold] of cases) {
+    await measure(percent)
+    const out = await lines($, 100)
+    const title = out.find(l => l.includes(' QUOTA ')) ?? ''
+    expect(title).toMatch(new RegExp(`- QUOTA\\s+ctx ${text.replace(/!/g, '\\!')} │$`))
+    expect(title).not.toContain('tightest')
+    const ui = await $.ui.mount(pane(100, 200))
+    expect((await ui.find({ type: 'Text', text: 'ctx ' }))?.props).toMatchObject({ dimColor: true })
+    const props = (await ui.find({ type: 'Text', text }))?.props ?? {}
+    expect([props['color'], props['bold']], text).toEqual([color, bold])
+    await ui.unmount()
+  }
+})
+
+test('with no context reading yet the QUOTA badge falls back to the tightest quota', { options: { timeZone: 'Asia/Singapore' } }, async ($, on) => {
+  const w = world(on)
+  w.rateLimits = CLAUDE
+  await start($)
+  await toggle($)
+  const out = await lines($, 100)
+  const title = out.find(l => l.includes(' QUOTA ')) ?? ''
+  expect(title).toMatch(/- QUOTA\s+tightest 61% │$/)
+  expect(title).not.toContain('ctx')
+  const ui = await $.ui.mount(pane(100, 200))
+  expect((await ui.find({ type: 'Text', text: 'tightest ' }))?.props).toMatchObject({ dimColor: true })
   await ui.unmount()
 })
