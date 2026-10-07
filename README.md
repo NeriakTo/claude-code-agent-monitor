@@ -86,10 +86,10 @@ Type `/monitor` to open or close the pane. This sample is drawn by the test suit
 ╰──────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────╮
 │ - PROJECTS                             5 open · 1 on you │
-│ Alpha                                                  3 │
-│ ● #301 monitor arrange mode                          you │
-│ · #208 parser second pass                             me │
-│ · #298 release outline                               ext │
+│ ● Alpha                                           review │
+│   ● #301 monitor arrange mode                        you │
+│   · #208 parser second pass                           me │
+│   · #298 release outline                             ext │
 │ Beta                                                   2 │
 │ · #150 nightly report cleanup                         me │
 │ · #151 export settings page                           me │
@@ -143,6 +143,7 @@ Options are the plugin's `userConfig` fields. Each one appears as a row in Claud
 | `runtimeNames` | `""` | Display names for runtime ids, as `id=name` pairs separated by commas (e.g. `codex-cli=Codex`). Empty shows the runtime id. |
 | `timeZone` | `""` | IANA time zone for clock times in the pane (e.g. `Europe/Berlin`). Empty uses UTC. |
 | `customCards` | `""` | Extra cards as `TITLE=command` pairs separated by `;;` (see [Custom cards](#custom-cards)). Empty adds no cards. |
+| `customCardRefresh` | `""` | Per-card intervals as `card-id=seconds` pairs separated by commas, e.g. `board=10, builds=30`. Ids follow `collapsedCards`; seconds are clamped to 10 through 3600. Malformed entries are ignored; unlisted cards keep 60 seconds. |
 | `openOnStart` | `false` | Open the monitor pane when a session starts. |
 | `wakePattern` | `""` | A regular expression marking prompts that woke the session (shown in `SESSION`). Empty counts scheduled and loop triggers. |
 | `collapsedCards` | `"session"` | Comma-separated card ids collapsed until you expand them: `inbox`, `running`, `dispatches`, `session`, and each custom card's id. |
@@ -209,7 +210,7 @@ Below `recent`, the last `recentRows` Bash calls and subagents that ran at least
 
 **SESSION.** When the session started and how long it has been up, the last wake (time and the first 30 characters of the prompt that woke it), and how many times the conversation was compacted and when. Collapsed, it reads `up 8m · woke never · compacted 0`. These figures survive a hot reload.
 
-**Footer.** `updated HH:MM · refresh 60s` says when the cards' data was last read. When cards are hidden, the line above lists their ids and the footer ends in `N hidden  Show`; `Show` lists each hidden card with its own `Show` button that puts it back.
+**Footer.** `updated HH:MM · refresh 60s` says when the cards' data was last read. Configured custom intervals follow it, e.g. `· board 10s · builds 30s`; this list is omitted first when space is short. When cards are hidden, the line above lists their ids and the footer ends in `N hidden  Show`; `Show` lists each hidden card with its own `Show` button that puts it back.
 
 ### Status marks
 
@@ -329,12 +330,13 @@ Claude's own windows need no command: the mod reads them from Claude Code (`$.se
 
 ## Custom cards
 
-`customCards` holds `TITLE=command` pairs separated by `;;`, for example `TODO=python3 /path/to/todo.py;;BUILDS=/path/to/builds --json`. Each command is split into arguments like a shell would for plain words and quotes, but **runs without a shell** (no pipes, globbing or variable expansion; wrap anything more in a script), with a 10 second timeout, when the pane opens and every 60 seconds while it is open. It must print one JSON object:
+`customCards` holds `TITLE=command` pairs separated by `;;`, for example `TODO=python3 /path/to/todo.py;;BUILDS=/path/to/builds --json`. Each command is split into arguments like a shell would for plain words and quotes, but **runs without a shell** (no pipes, globbing or variable expansion; wrap anything more in a script), with a 10 second timeout, when the pane opens and every 60 seconds while it is open. `customCardRefresh` overrides individual cards, for example `todo=10, builds=30`, without changing other commands' timers. It must print one JSON object:
 
 ```json
 {
   "summary": "one line, shown when the card is collapsed",
   "badge": "optional, shown on the title row in place of the item count",
+  "groups": { "Alpha": { "mark": "warn", "right": "review" } },
   "items": [
     { "mark": "waiting", "text": "approve the weekly release notes", "right": "4d" },
     { "mark": "failed", "text": "disk-usage-check-daily", "right": "last 05:30" },
@@ -348,6 +350,8 @@ Claude's own windows need no command: the mod reads them from Claude Code (`$.se
 - `text` and `summary` are cut to 80 characters, `right` to 12, `empty` to 60. At most 30 items are read.
 - `badge` is optional: short text (cut to 30 characters) shown on the title row instead of the item count, for example `14 open · 3 on you`. It is yellow when an item is `waiting` or `warn`, like the count; failed items still add `N failed` in red. Without it the title row shows the item count.
 - `group` is optional. When items name a group, the card draws a gray heading per group, in the order the groups first appear, with the group's item count on the right, and lists the group's items under it; items with no group come first, under no heading. Headings do not count against the item limit. Cards whose items name no group are drawn as before.
+- Top-level `groups` is optional: each key names an existing item group and maps to an object with optional `mark` and `right`. `mark` uses the item mark set; invalid marks are treated as absent. `right` is limited to 12 characters. A valid mark or right decorates that heading like an item row: the mark's usual color, a plain-text group name, and right text (the item count when right is absent). Without a mark its slot stays blank. Its child rows indent two spaces. Empty or invalid decorations leave the original gray heading and unindented items unchanged; groups absent from items are never added, and group order still follows items.
+- Group marks only decorate headings: they do not change badges, failed counts, the band or the status line. Headings consume neither the item limit nor the `+N more` count when height is short.
 - When a card shows fewer items than it has, `failed`, `warn` and `stalled` items are listed first; the rest keep the command's order.
 - Text is shown as given, in any language; the mod does not translate it.
 - Output that is not a JSON object, or a command that fails or times out, shows `could not read: <reason>` in the card; nothing throws.
@@ -428,7 +432,10 @@ The mod hooks these events. Apart from `/monitor` and its own two drawings, ever
 
 - A 30 second tick updates elapsed times and checks the waiting threshold.
 - While the pane is open, `dispatchCommand`, the custom card commands and the subagent list are read when it opens and every 60 seconds. With the pane closed, none of these run.
+- Cards listed in `customCardRefresh` have independent timers (10 to 3600 seconds), running only that card while the pane is open. Unlisted cards and dispatch queries keep the shared 60-second timer. Reopening the pane or dispatch activity cannot run a configured card sooner than its interval. A card with a pending read skips timer ticks; after 45 seconds an abandoned read may be replaced, still respecting its interval. Late results cannot overwrite the replacement's data.
+- The existing status-line exception remains: with `statusLine` enabled, a custom card selected by `statusLineSubinfo` is read while the pane is closed, at most once per 60-second status refresh and never sooner than its configured interval.
 - `quotaCommand` and Claude's rate limits are read every 60 seconds whether the pane is open or not, because the band shows the quota too.
+- Quota uses its own 60-second timer, independent of card intervals, and still refreshes when the pane opens.
 - A refresh that has not finished after 45 seconds no longer blocks the next one, so one hung command cannot freeze the pane.
 - The footer shows when the data was last read. After 150 seconds without a successful read (two missed refreshes), it turns to the warning color and says how old the data is: `updated 12:02 (stale, 4m old) · refresh 60s`.
 
@@ -518,6 +525,12 @@ docs/renders/                band and pane samples at 60 and 100 columns
 ```
 
 ## Changelog
+
+### 0.5.0
+
+- Optional custom-card `groups` decorations add status marks and right text to headings, with indented child rows; item badges and folding counts stay unchanged.
+- Per-card `customCardRefresh` intervals keep individual commands on their own timers; the footer lists configured intervals when there is room.
+- Thanks to @Johnny-Tsai, whose pull requests #1 and #2 proposed these two features.
 
 ### 0.4.0
 

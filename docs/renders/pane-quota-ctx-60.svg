@@ -96,22 +96,23 @@
 <text x="360.4" y="439.0" textLength="142.8" lengthAdjust="spacingAndGlyphs" fill="#e5c07b" font-weight="600">5 open · 1 on you</text>
 <path d="M515.8 424.0V444.0" stroke="#7f8794" fill="none" data-col="59" data-row="19" data-text="│"/>
 <path d="M20.2 444.0V464.0" stroke="#7f8794" fill="none" data-col="0" data-row="20" data-text="│"/>
-<text x="32.8" y="459.0" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#7f8794">Alpha</text>
-<text x="494.8" y="459.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#7f8794">3</text>
+<text x="32.8" y="459.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#e5c07b">●</text>
+<text x="49.6" y="459.0" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">Alpha</text>
+<text x="452.8" y="459.0" textLength="50.4" lengthAdjust="spacingAndGlyphs" fill="#7f8794">review</text>
 <path d="M515.8 444.0V464.0" stroke="#7f8794" fill="none" data-col="59" data-row="20" data-text="│"/>
 <path d="M20.2 464.0V484.0" stroke="#7f8794" fill="none" data-col="0" data-row="21" data-text="│"/>
-<text x="32.8" y="479.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#e5c07b">●</text>
-<text x="49.6" y="479.0" textLength="210.0" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">#301 monitor arrange mode</text>
+<text x="49.6" y="479.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#e5c07b">●</text>
+<text x="66.4" y="479.0" textLength="210.0" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">#301 monitor arrange mode</text>
 <text x="478.0" y="479.0" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#7f8794">you</text>
 <path d="M515.8 464.0V484.0" stroke="#7f8794" fill="none" data-col="59" data-row="21" data-text="│"/>
 <path d="M20.2 484.0V504.0" stroke="#7f8794" fill="none" data-col="0" data-row="22" data-text="│"/>
-<text x="32.8" y="499.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#7f8794">·</text>
-<text x="49.6" y="499.0" textLength="193.2" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">#208 parser second pass</text>
+<text x="49.6" y="499.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#7f8794">·</text>
+<text x="66.4" y="499.0" textLength="193.2" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">#208 parser second pass</text>
 <text x="486.4" y="499.0" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#7f8794">me</text>
 <path d="M515.8 484.0V504.0" stroke="#7f8794" fill="none" data-col="59" data-row="22" data-text="│"/>
 <path d="M20.2 504.0V524.0" stroke="#7f8794" fill="none" data-col="0" data-row="23" data-text="│"/>
-<text x="32.8" y="519.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#7f8794">·</text>
-<text x="49.6" y="519.0" textLength="168.0" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">#298 release outline</text>
+<text x="49.6" y="519.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#7f8794">·</text>
+<text x="66.4" y="519.0" textLength="168.0" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">#298 release outline</text>
 <text x="478.0" y="519.0" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#7f8794">ext</text>
 <path d="M515.8 504.0V524.0" stroke="#7f8794" fill="none" data-col="59" data-row="23" data-text="│"/>
 <path d="M20.2 524.0V544.0" stroke="#7f8794" fill="none" data-col="0" data-row="24" data-text="│"/>
