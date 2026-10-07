@@ -20,6 +20,7 @@ It is a plugin of function hooks with two views: a one-line **band** above the p
 - [Known limits](#known-limits)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+- [Changelog](#changelog)
 - [License](#license)
 
 ## At a glance
@@ -60,7 +61,7 @@ Type `/monitor` to open or close the pane. This sample is plain text printed by 
 │ inbox 1 · now 1 · agents 1 · no reply yet                │
 ╰──────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────╮
-│ - QUOTA                                     tightest 61% │
+│ - QUOTA                                          ctx 44% │
 │ Claude 5h    ■■■■■■····   58%   resets 13:51             │
 │ Claude week  ■■■■■■····   61%   resets Thu 12:00         │
 │ Alpha        ··········    2%   resets 10/14             │
@@ -89,7 +90,7 @@ Type `/monitor` to open or close the pane. This sample is plain text printed by 
 
 ## Requirements
 
-- Claude Code with function-hook plugins (mods). Tested with **Claude Code 2.1.289**; no older minimum version has been verified.
+- Claude Code with function-hook plugins (mods). Tested with **Claude Code 2.1.292**; no older minimum version has been verified.
 - The function-hooks API is marked early access by Claude Code and may change between releases.
 - Nothing else. The mod has no dependencies and runs inside Claude Code's own hooks environment.
 
@@ -421,7 +422,7 @@ The pane uses the height the terminal reports, or `paneMaxRows` when it reports 
 
 ## Design notes
 
-- **Context usage is left to Claude Code's status line.** Claude Code already shows context usage. Showing the same percentage again in the band and the pane only repeated one number in several places, so the mod shows a context figure only when it calls for action: `restart soon` past `contextWarnPercent`, `restart now` past `contextCriticalPercent`.
+- **Context usage sits next to the quota.** Context fill and rate limits are the two numbers that decide when to restart or slow down, so the pane shows context use as the `QUOTA` card's badge, `ctx 44%`, colored by the same kind of thresholds. The band stays quiet about it until it calls for action: `restart soon` past `contextWarnPercent`, `restart now` past `contextCriticalPercent`.
 - **A glyph whitelist.** Some terminal fonts cannot draw every Unicode symbol and show a box instead (thin gauge blocks such as `▰▱` and refresh arrows are common offenders), and shading blocks such as `░` can turn into colored noise. Every non-ASCII character either view may draw is in one whitelist, `●✓✗◌–·│─┊╭╮╰╯■↑↓`, and a test scans every drawn line against it; the gauge square `■` and the arrows `↑↓` are in the Windows console's code page 437 too. Shading and full blocks (`░▒▓█`) are kept out on purpose. Card toggles are the ASCII `+` and `-`, quota flags the ASCII `!` and `!!`. The mod's own text is ASCII; only text from your channels or commands may contain other characters.
 - **No external commands by default.** Only `quotaCommand`, `dispatchCommand` and `customCards` run anything. All are empty by default and run without a shell, with a timeout; the last two only while the pane is open. A fresh install observes and draws; it does not execute.
 - **Quiet until it needs you.** Gauges and percents stay green below the warning line; yellow, red, `!` and `!!` appear only past a threshold, and stale readings are gray rather than passed off as current.
@@ -497,6 +498,20 @@ tests/                       claude plugin test suites
 scripts/write-renders.sh     writes the plain-text samples to docs/renders/
 docs/renders/                band and pane samples at 60 and 100 columns
 ```
+
+## Changelog
+
+### 0.4.0
+
+- New `QUOTA` card: Claude's 5-hour and weekly windows plus any source from `quotaCommand`, each with a gauge, the percent, `!`/`!!` past `quotaWarnPercent`/`quotaCriticalPercent` and the reset time. Gauges and percents are green below the warning line. The card's badge shows context use (`ctx 44%`).
+- `RUNNING` keeps a short `recent` list of ended Bash calls and subagents, with their duration and end time.
+- Custom card items can name a `group`, and the card lists them under group headings.
+- Arrange mode: move cards up or down, place them on the band or in the pane, or hide them, from buttons instead of commands; the order and placement are kept.
+- Optional status line under the prompt (`statusLine`, `statusLineState`, `statusLineSubinfo`).
+
+### 0.3.1
+
+- First public release: the band, the `/monitor` pane, channel inbox, running actions, dispatches, custom cards and the session card.
 
 ## License
 
