@@ -210,3 +210,18 @@ test('a source with no reading still gets its row, and every quota line stays wi
   for (const l of out) expect([...l].length).toBeLessThanOrEqual(60)
   expect(offList(out.join('\n'))).toEqual([])
 })
+
+test('quotaCommand runs once at start, once when the pane opens, then once a minute, pane open or closed', QUOTA, async ($, on) => {
+  const w = world(on, () => ok(ROWS))
+  const quotaRuns = (): number => w.runs.filter(argv => argv[0] === 'quota-tool').length
+  await start($)
+  await w.clock.settle()
+  expect(quotaRuns()).toBe(1)
+  await toggle($)
+  expect(quotaRuns()).toBe(2)
+  await w.clock.advance(3 * MIN)
+  expect(quotaRuns()).toBe(5)
+  await toggle($)
+  await w.clock.advance(2 * MIN)
+  expect(quotaRuns()).toBe(7)
+})

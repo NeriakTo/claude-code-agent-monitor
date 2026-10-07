@@ -276,7 +276,8 @@ const recordEndedAgents = async ($: $, cfg: Config, now: number): Promise<void> 
   for (const run of ended) await saveRecent($, run)
 }
 
-const refreshPane = async ($: $, cfg: Config): Promise<void> => {
+/** Reads what the pane shows; `isOpening` also runs the quotaCommand, which otherwise keeps its own 60 s timer. */
+const refreshPane = async ($: $, cfg: Config, isOpening = false): Promise<void> => {
   const now = await $.clock.now()
   if (refreshingSince !== null && now - refreshingSince < REFRESH_STALE_MS) return
   refreshingSince = now
@@ -290,7 +291,7 @@ const refreshPane = async ($: $, cfg: Config): Promise<void> => {
       const view = await readCustom($, card, now)
       await update($, customA, list => list.map(one => (one.id === card.id ? view : one)))
     }
-    await refreshQuota($, cfg)
+    await (isOpening ? refreshQuota($, cfg) : readClaudeQuota($))
     try {
       const infos = await $.agent.list()
       await update($, agentsA, runs => mergeAgentStatus(runs, infos))
@@ -548,7 +549,7 @@ export const register: Register = (on, options) => {
       void refreshQuota($, cfg)
       if (cfg.openOnStart && !(await isPaneOpen($))) {
         await $.ui.open({ id: PANE, title: 'Agent monitor' })
-        void refreshPane($, cfg)
+        void refreshPane($, cfg, true)
       }
     } catch (err) {
       logError($, 'timers', err)
@@ -669,7 +670,7 @@ export const register: Register = (on, options) => {
         return { text: 'Agent monitor closed.' }
       }
       const opened = await $.ui.open({ id: PANE, title: 'Agent monitor' })
-      await refreshPane($, cfg)
+      await refreshPane($, cfg, true)
       return { text: opened.isPlaced ? 'Agent monitor opened.' : `Agent monitor opened, not shown yet: ${oneLine(opened.reason)}` }
     } catch (err) {
       logError($, 'monitor', err)
