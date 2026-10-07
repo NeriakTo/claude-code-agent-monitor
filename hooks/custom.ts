@@ -22,11 +22,16 @@ export const parseCustomOutput = (stdout: string): Pick<CustomView, 'summary' | 
   return {
     summary: text(raw['summary'], 80),
     empty: text(raw['empty'], 60) || 'nothing to show',
-    items: items.map(item => ({
-      mark: MARKS.includes(item['mark'] as CustomMark) ? (item['mark'] as CustomMark) : 'idle',
-      text: text(item['text'], 80),
-      right: text(item['right'], 12),
-    })),
+    items: items.map(item => {
+      const group = text(item['group'], 40)
+      return {
+        mark: MARKS.includes(item['mark'] as CustomMark) ? (item['mark'] as CustomMark) : 'idle',
+        text: text(item['text'], 80),
+        right: text(item['right'], 12),
+        // Optional: items that name a group are listed under a heading per group.
+        ...(group === '' ? {} : { group }),
+      }
+    }),
   }
 }
 

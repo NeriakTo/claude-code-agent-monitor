@@ -19,6 +19,12 @@ export type Config = {
   collapsedCards: ReadonlySet<string>
   customCardMaxItems: number
   paneMaxRows: number
+  /** The quota command split into argv; empty when not set. */
+  quotaArgv: readonly string[]
+  quotaWarn: number
+  quotaCritical: number
+  /** How many ended runs the RUNNING card lists under recent. */
+  recentRows: number
 }
 
 /** A card's id: its title in lower case, runs of other characters as one dash. */
@@ -101,6 +107,7 @@ const toPattern = (raw: string): RegExp | null => {
 export const parseConfig = (options: RawOptions | undefined): Config => {
   const o = options ?? {}
   const warn = num(o['contextWarnPercent'], 70, 1, 100)
+  const quotaWarn = num(o['quotaWarnPercent'], 70, 1, 100)
   return {
     channelNames: parsePairs(str(o['channelNames'])),
     replyTools: new Set(
@@ -127,6 +134,10 @@ export const parseConfig = (options: RawOptions | undefined): Config => {
     ),
     customCardMaxItems: Math.round(num(o['customCardMaxItems'], 5, 1, 100)),
     paneMaxRows: Math.round(num(o['paneMaxRows'], 44, 10, 500)),
+    quotaArgv: splitArgv(str(o['quotaCommand'])),
+    quotaWarn,
+    quotaCritical: Math.max(quotaWarn, num(o['quotaCriticalPercent'], 90, 1, 100)),
+    recentRows: Math.round(num(o['recentRows'], 5, 0, 30)),
   }
 }
 

@@ -42,6 +42,8 @@ export type World = {
   store: Map<string, unknown>
   /** What $.session.usage() reports as the session's start. */
   sessionStartedAt: number
+  /** What $.session.usage() reports as Claude's rate-limit windows. */
+  rateLimits: { kind: string; percentUsed: number; resetsAt?: string }[]
   /** The argumentHint /monitor registered with. */
   hint: string
   open: Set<string>
@@ -55,7 +57,7 @@ export const world = (
   agents: { id: string; description: string; type: string; status: 'running' | 'completed' }[] = [],
 ): World => {
   const clock = mock.clock(on, { now: T0 })
-  const w: World = { clock, toasts: [], logs: [], runs: [], timeouts: [], store: new Map(), sessionStartedAt: T0, hint: '', open: new Set(), opens: [] }
+  const w: World = { clock, toasts: [], logs: [], runs: [], timeouts: [], store: new Map(), sessionStartedAt: T0, rateLimits: [], hint: '', open: new Set(), opens: [] }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
   on('store.keys', () => ({ value: [...w.store.keys()] }))
@@ -63,7 +65,8 @@ export const world = (
     w.store.delete(e.key)
     return { value: undefined }
   })
-  on('session.usage', () => ({ value: { startedAt: w.sessionStartedAt, context: { window: 200_000 }, rateLimits: [] } }))
+  on('session.usage', () => ({ value: { startedAt: w.sessionStartedAt, context: { window: 200_000 }, rateLimits: w.rateLimits } }))
+  on('ui.focus', () => ({}))
   on('store.set', ($, e) => {
     w.store.set(e.key, e.value)
     return { value: undefined }
@@ -139,7 +142,8 @@ const padEnd = (s: string, w: number): string => s + ' '.repeat(Math.max(0, w - 
 export const renderText = (n: unknown, width: number): string[] => {
   if (!isNode(n)) return typeof n === 'string' ? [n] : []
   if (n.type === 'Text') return [textOf(n)]
-  if (n.type === 'Button') return [String(n.props['label'] ?? '')]
+  // A plain Button with a hotkey is drawn `h: Hide` by the terminal; without one, its label alone.
+  if (n.type === 'Button') return [`${typeof n.props['hotkey'] === 'string' ? `${n.props['hotkey']}: ` : ''}${String(n.props['label'] ?? '')}`]
   const p = n.props
   const isColumn = p['flexDirection'] === 'column'
   const border = typeof p['borderStyle'] === 'string'

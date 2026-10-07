@@ -4,7 +4,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { Action, AgentRun, ContextMark, CustomView, DispatchView, Pending, SessionInfo } from '../types'
+import type { Action, AgentRun, ContextMark, CustomView, DispatchView, Pending, Placement, QuotaView, RecentRun, SessionInfo } from '../types'
 import { parseConfig, resolveCards } from './config'
 import type { Config } from './config'
 import { dispatchArgv, oneLine, pairDispatches, parseJsonl } from './dispatch'
@@ -24,8 +24,12 @@ import {
 } from './logic'
 import type { ChannelMessage } from './logic'
 import { buildModel } from './model'
+import { cardIds, cardOfKey, movedOrder, storedIds, storedPlacement } from './arrange'
 import { emptyCustom, parseCustomOutput } from './custom'
-import { cardInner, cardTitle, layoutPane, paneDoc } from './pane'
+import { RECENT_MIN_MS, RECORDED_TOOLS, addRecent, endedAgents, storedRecent } from './recent'
+import { arrangedOrder, cardInner, cardTitle, layoutPane, paneDoc } from './pane'
+import type { PaneOptions } from './pane'
+import { claudeRows, quotaFromRun, resetText } from './quota'
 import { TOGGLE, bandLine, bandSegments, textProps } from './view'
 import type { Line } from './view'
 
@@ -56,6 +60,17 @@ const STORE_HIDDEN = 'hidden'
 const STORE_ROWS = 'rows'
 const hiddenA = atom({ plugin: 'agent-monitor', key: 'hidden' } as const, [] as string[])
 const rowsA = atom({ plugin: 'agent-monitor', key: 'rows' } as const, {} as Record<string, number>)
+const quotaA = atom({ plugin: 'agent-monitor', key: 'quota' } as const, { claude: [], external: [], error: null, fetchedAt: null } as QuotaView)
+const recentA = atom({ plugin: 'agent-monitor', key: 'recent' } as const, [] as RecentRun[])
+const orderA = atom({ plugin: 'agent-monitor', key: 'order' } as const, [] as string[])
+const placementA = atom({ plugin: 'agent-monitor', key: 'placement' } as const, {} as Record<string, Placement>)
+const arrangingA = atom({ plugin: 'agent-monitor', key: 'arranging' } as const, false)
+const selectedA = atom({ plugin: 'agent-monitor', key: 'selected' } as const, null as string | null)
+const revealA = atom({ plugin: 'agent-monitor', key: 'revealHidden' } as const, false)
+const STORE_RECENT = 'recent'
+const STORE_ORDER = 'order'
+const STORE_PLACEMENT = 'placement'
+const QUOTA_TIMEOUT_MS = 10_000
 const CUSTOM_TIMEOUT_MS = 10_000
 /** How long after a dispatch command starts before its DispatchStarted event is read. */
 const DISPATCH_SETTLE_MS = 5_000
@@ -148,18 +163,14 @@ const readCustom = async (
   }
 }
 
-/** Expands or collapses cards (`all` for every one), kept in $.state and $.store. */
-/** Every card id this configuration draws, in pane order. */
-const cardIds = (cfg: Config): string[] => [
-  'inbox',
-  'running',
-  ...(cfg.dispatchArgv.length > 0 ? ['dispatches'] : []),
-  ...cfg.customCards.map(c => c.id),
-  'session',
-]
+const hasQuota = async ($: $, cfg: Config): Promise<boolean> => cfg.quotaArgv.length > 0 || (await read($, quotaA)).claude.length > 0
 
+/** The card ids drawn now (QUOTA appears once Claude reports its windows). */
+const liveCardIds = async ($: $, cfg: Config): Promise<string[]> => cardIds(cfg, await hasQuota($, cfg))
+
+/** Expands or collapses cards (`all` for every one), kept in $.state and $.store. */
 const setExpanded = async ($: $, cfg: Config, which: string, isExpanded: boolean): Promise<string[]> => {
-  const match = resolveCards(cardIds(cfg), which)
+  const match = resolveCards(await liveCardIds($, cfg), which)
   if ('error' in match) return []
   const target = match.ids
   let next: Record<string, boolean> = {}
@@ -173,7 +184,7 @@ const setExpanded = async ($: $, cfg: Config, which: string, isExpanded: boolean
 
 /** /monitor hide|show|rows: the answer line for the person. */
 const arrangeCards = async ($: $, cfg: Config, verb: string, which: string, value: string | undefined): Promise<string> => {
-  const match = resolveCards(cardIds(cfg), which)
+  const match = resolveCards(await liveCardIds($, cfg), which)
   if ('error' in match) return match.error
   const target = match.ids
   if (verb === 'hide' || verb === 'show') {
@@ -197,6 +208,74 @@ const arrangeCards = async ($: $, cfg: Config, verb: string, which: string, valu
   return value === 'default' ? `Rows back to default: ${target.join(', ')}.` : `Rows set to ${n}: ${target.join(', ')}.`
 }
 
+// ---------- quota ----------
+
+/** Like refreshingSince, for the quota command alone: one hung read never blocks the next. */
+let quotaSince: number | null = null
+
+const readQuota = async ($: $, cfg: Config): Promise<Pick<QuotaView, 'external' | 'error'> | { error: string }> => {
+  try {
+    return quotaFromRun(await $.process.run(cfg.quotaArgv, { timeoutMs: QUOTA_TIMEOUT_MS }))
+  } catch (err) {
+    return { error: oneLine(errText(err)) }
+  }
+}
+
+/**
+ * Claude's windows from $.session.usage(), then the quotaCommand when one is set. A failing command
+ * keeps its last rows (they turn stale on their own) and only the QUOTA card shows why.
+ */
+const readClaudeQuota = async ($: $): Promise<void> => {
+  try {
+    const now = await $.clock.now()
+    const usage = await $.session.usage()
+    const rows = claudeRows(usage.rateLimits ?? [], now)
+    await update($, quotaA, q => ({ ...q, claude: rows }))
+  } catch (err) {
+    logError($, 'session.usage', err)
+  }
+}
+
+const refreshQuota = async ($: $, cfg: Config): Promise<void> => {
+  try {
+    await readClaudeQuota($)
+    const now = await $.clock.now()
+    if (cfg.quotaArgv.length === 0) return
+    if (quotaSince !== null && now - quotaSince < REFRESH_STALE_MS) return
+    quotaSince = now
+    try {
+      const read = await readQuota($, cfg)
+      await update($, quotaA, q => ({ ...q, ...read, fetchedAt: now }))
+    } finally {
+      if (quotaSince === now) quotaSince = null
+    }
+  } catch (err) {
+    logError($, 'quota', err)
+  }
+}
+
+// ---------- recently ended runs ----------
+
+const saveRecent = async ($: $, run: RecentRun): Promise<void> => {
+  let next: RecentRun[] = []
+  await update($, recentA, list => {
+    next = addRecent(list, run)
+    return next
+  })
+  await $.store.set(STORE_RECENT, next)
+}
+
+/** Background subagents end after their call does: once $.agent.list() says so, they join recent. */
+const recordEndedAgents = async ($: $, cfg: Config, now: number): Promise<void> => {
+  let ended: RecentRun[] = []
+  await update($, agentsA, runs => {
+    const result = endedAgents(runs, now, run => labelFor(cfg, 'Agent', { description: run.description }))
+    ended = result.ended
+    return result.runs
+  })
+  for (const run of ended) await saveRecent($, run)
+}
+
 const refreshPane = async ($: $, cfg: Config): Promise<void> => {
   const now = await $.clock.now()
   if (refreshingSince !== null && now - refreshingSince < REFRESH_STALE_MS) return
@@ -211,9 +290,11 @@ const refreshPane = async ($: $, cfg: Config): Promise<void> => {
       const view = await readCustom($, card, now)
       await update($, customA, list => list.map(one => (one.id === card.id ? view : one)))
     }
+    await refreshQuota($, cfg)
     try {
       const infos = await $.agent.list()
       await update($, agentsA, runs => mergeAgentStatus(runs, infos))
+      await recordEndedAgents($, cfg, now)
     } catch (err) {
       logError($, 'agent.list', err)
     }
@@ -231,6 +312,76 @@ const onPaneTimer = async ($: $, cfg: Config): Promise<void> => {
     if (await isPaneOpen($)) await refreshPane($, cfg)
   } catch (err) {
     logError($, 'pane timer', err)
+  }
+}
+
+// ---------- arranging cards ----------
+
+/** The pane options both views lay the cards out with: what the person set, by command or button. */
+const paneOptions = async ($: $, cfg: Config): Promise<PaneOptions> => ({
+  customMaxItems: cfg.customCardMaxItems,
+  rows: await read($, rowsA),
+  hidden: await read($, hiddenA),
+  order: await read($, orderA),
+  placement: await read($, placementA),
+  recentRows: cfg.recentRows,
+  isArranging: await read($, arrangingA),
+  selected: await read($, selectedA),
+  isHiddenRevealed: await read($, revealA),
+})
+
+const saveHidden = async ($: $, change: (list: string[]) => string[]): Promise<void> => {
+  let next: string[] = []
+  await update($, hiddenA, list => {
+    next = change(list)
+    return next
+  })
+  await $.store.set(STORE_HIDDEN, next)
+}
+
+/** Moves a card one place up or down among the cards not hidden, kept in $.store. */
+const moveCard = async ($: $, cfg: Config, id: string, by: -1 | 1): Promise<void> => {
+  const full = arrangedOrder(await liveCardIds($, cfg), await read($, orderA))
+  const next = movedOrder(full, await read($, hiddenA), id, by)
+  if (next === null) return
+  await update($, orderA, () => next)
+  await $.store.set(STORE_ORDER, next)
+}
+
+const togglePlacement = async ($: $, id: string): Promise<void> => {
+  let next: Record<string, Placement> = {}
+  await update($, placementA, map => {
+    next = { ...map, [id]: map[id] === 'band' ? 'pane' : 'band' }
+    return next
+  })
+  await $.store.set(STORE_PLACEMENT, next)
+}
+
+/** What a pane Button does, by its key: Arrange/Done, the four arrange buttons, and the hidden-card buttons. */
+const press = async ($: $, cfg: Config, key: string): Promise<void> => {
+  try {
+    const [verb = '', id = ''] = key.split(/:(.*)/s)
+    if (key === 'arrange') {
+      const isArranging = await read($, arrangingA)
+      await update($, arrangingA, () => !isArranging)
+      await update($, selectedA, () => null)
+    } else if (key === 'reveal-hidden') {
+      await update($, revealA, is => !is)
+    } else if (verb === 'up' || verb === 'down') {
+      await moveCard($, cfg, id, verb === 'up' ? -1 : 1)
+      await update($, selectedA, () => id)
+    } else if (verb === 'place') {
+      await togglePlacement($, id)
+      await update($, selectedA, () => id)
+    } else if (verb === 'hide') {
+      await saveHidden($, list => [...new Set([...list, id])])
+      await update($, selectedA, () => null)
+    } else if (verb === 'show') {
+      await saveHidden($, list => list.filter(one => one !== id))
+      if ((await read($, hiddenA)).length === 0) await update($, revealA, () => false)
+    }
+  } catch (err) {
+    logError($, `press ${key}`, err)
   }
 }
 
@@ -298,9 +449,15 @@ const beginCall = async (
 const endCall = async ($: $, tracked: Tracked, hasFailed: boolean, result: unknown): Promise<void> => {
   const { action, agentRun } = tracked
   if (action !== null) await update($, actionsA, list => list.filter(one => one.id !== action.id))
+  const launch = launchOf(result)
+  if (action !== null && RECORDED_TOOLS.has(action.tool) && !(agentRun !== null && launch.isBackground)) {
+    const endedAt = await $.clock.now()
+    if (endedAt - action.startedAt >= RECENT_MIN_MS) {
+      await saveRecent($, { id: action.id, label: action.label, startedAt: action.startedAt, endedAt, status: hasFailed ? 'failed' : 'done' })
+    }
+  }
   if (agentRun === null) return
   const endedAt = await $.clock.now()
-  const launch = launchOf(result)
   await update($, agentsA, list =>
     list.map(one =>
       one.id !== agentRun.id
@@ -336,6 +493,8 @@ const readModel = async ($: $, cfg: Config) => {
     dispatch: await read($, dispatchA),
     custom: await read($, customA),
     session: await read($, sessionA),
+    quota: await read($, quotaA),
+    recent: await read($, recentA),
   }
   return buildModel(input, now, cfg)
 }
@@ -358,6 +517,13 @@ export const register: Register = (on, options) => {
       if (typeof savedRows === 'object' && savedRows !== null) await update($, rowsA, () => savedRows as Record<string, number>)
       const saved = await $.store.get(STORE_EXPANDED)
       if (typeof saved === 'object' && saved !== null) await update($, expandedA, () => saved as Record<string, boolean>)
+      const savedOrder = storedIds(await $.store.get(STORE_ORDER))
+      if (savedOrder !== null) await update($, orderA, () => savedOrder)
+      const savedPlacement = storedPlacement(await $.store.get(STORE_PLACEMENT))
+      if (savedPlacement !== null) await update($, placementA, () => savedPlacement)
+      // Ended runs survive a reload: restored from the store, never cleared at start.
+      const savedRecent = storedRecent(await $.store.get(STORE_RECENT))
+      if (savedRecent !== null) await update($, recentA, () => savedRecent)
     } catch (err) {
       logError($, 'session.start', err)
     }
@@ -365,7 +531,9 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name: 'monitor',
         description: 'Toggle the agent monitor pane; expand or collapse its cards',
-        argumentHint: `[expand|collapse <card|all> · hide <card> · show <card|all> · rows <card> <1-30|default>] cards: ${cardIds(cfg).join(', ')}`,
+        argumentHint: `[expand|collapse <card|all> · hide <card> · show <card|all> · rows <card> <1-30|default>] cards: ${cardIds(cfg).join(', ')}${
+          cfg.quotaArgv.length > 0 ? '' : ' (quota once Claude reports its limits)'
+        }`,
       })
     } catch (err) {
       logError($, 'command.register', err)
@@ -373,6 +541,11 @@ export const register: Register = (on, options) => {
     try {
       $.clock.every(TICK_MS, () => void onTick($, cfg))
       $.clock.every(PANE_REFRESH_MS, () => void onPaneTimer($, cfg))
+      // The quota feeds the band too, so it is read whether the pane is open or not.
+      $.clock.every(PANE_REFRESH_MS, () => void refreshQuota($, cfg))
+      // Claude's own windows are read before the first draw; the command runs in the background.
+      await readClaudeQuota($)
+      void refreshQuota($, cfg)
       if (cfg.openOnStart && !(await isPaneOpen($))) {
         await $.ui.open({ id: PANE, title: 'Agent monitor' })
         void refreshPane($, cfg)
@@ -467,6 +640,11 @@ export const register: Register = (on, options) => {
       if (shouldAlert) {
         $.ui.toast(`Context usage passed ${cfg.contextWarn}% - consider restarting the session soon`, { timeoutMs: 10_000 })
       }
+      if (e.changed.includes('rateLimits')) {
+        const now = await $.clock.now()
+        const rows = claudeRows(e.rateLimits, now)
+        await update($, quotaA, q => ({ ...q, claude: rows }))
+      }
     } catch (err) {
       logError($, 'session.measure', err)
     }
@@ -481,7 +659,7 @@ export const register: Register = (on, options) => {
       const which = rest.join(' ') || 'all'
       if (verb === 'hide' || verb === 'show' || verb === 'rows') return { text: await arrangeCards($, cfg, verb, which, value) }
       if (verb === 'expand' || verb === 'collapse') {
-        const match = resolveCards(cardIds(cfg), which)
+        const match = resolveCards(await liveCardIds($, cfg), which)
         if ('error' in match) return { text: match.error }
         const ids = await setExpanded($, cfg, which, verb === 'expand')
         return { text: `${verb === 'expand' ? 'Expanded' : 'Collapsed'}: ${ids.join(', ')}.` }
@@ -510,19 +688,41 @@ export const register: Register = (on, options) => {
     return closed
   })
 
+  // The arrange buttons' hotkeys follow the focus ring: the card it lands on takes u/d/b/h.
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    try {
+      const id = cardOfKey(e.element)
+      if (id !== null) await update($, selectedA, () => id)
+    } catch (err) {
+      logError($, 'ui.focus', err)
+    }
+    return next(e)
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     try {
       const model = await readModel($, cfg)
-      const segments = bandSegments(model, await isPaneOpen($))
+      const opts = await paneOptions($, cfg)
+      const doc = paneDoc(model, e.props.bodyColumns, cfg.timeZone, { ...opts, isArranging: false })
+      const segments = bandSegments(model, await isPaneOpen($), {
+        isQuotaHidden: opts.hidden.includes('quota'),
+        isQuotaOnBand: opts.placement?.['quota'] === 'band',
+        cards: doc.band.filter(card => card.id !== 'quota'),
+        resetLabel: row => resetText(row.resetsAt, model.now, cfg.timeZone),
+      })
       if (segments.length === 0) return next(e)
       const line = bandLine(segments, e.props.bodyColumns)
       const { Box, Text } = $.ui.resolve(e)
       return (
         <Box flexDirection="row">
-          {line.map(run => (
-            <Text {...textProps(run)}>{run.text}</Text>
-          ))}
+          {line.map(run =>
+            run.button === undefined ? (
+              <Text {...textProps(run)}>{run.text}</Text>
+            ) : (
+              <Text {...textProps(run)}>{run.button.label}</Text>
+            ),
+          )}
         </Box>
       )
     } catch (err) {
@@ -536,21 +736,27 @@ export const register: Register = (on, options) => {
     try {
       const model = await readModel($, cfg)
       const expanded = await read($, expandedA)
-      const doc = paneDoc(model, e.props.bodyColumns, cfg.timeZone, {
-        customMaxItems: cfg.customCardMaxItems,
-        rows: await read($, rowsA),
-        hidden: await read($, hiddenA),
-      })
+      const doc = paneDoc(model, e.props.bodyColumns, cfg.timeZone, await paneOptions($, cfg))
       const rows = e.props.scroll.bodyRows > 0 ? e.props.scroll.bodyRows : cfg.paneMaxRows
       const layout = layoutPane(doc, id => expanded[id] ?? !cfg.collapsedCards.has(id), rows)
       const inner = cardInner(e.props.bodyColumns)
       const row = (line: Line) => (
         <Box flexDirection="row">
-          {line.map(run => (
-            <Text wrap="truncate" {...textProps(run)}>
-              {run.text}
-            </Text>
-          ))}
+          {line.map(run =>
+            run.button === undefined ? (
+              <Text wrap="truncate" {...textProps(run)}>
+                {run.text}
+              </Text>
+            ) : (
+              <Button
+                key={run.button.key}
+                plain
+                label={run.button.label}
+                {...(run.button.hotkey === undefined ? {} : { hotkey: run.button.hotkey })}
+                onPress={() => press($, cfg, run.button?.key ?? '')}
+              />
+            ),
+          )}
         </Box>
       )
       const card = (key: string, body: RenderChildren) => (
@@ -561,6 +767,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           {card('head', layout.head.map(row))}
+          {doc.arrange !== null && card('arrange', doc.arrange.map(row))}
           {layout.cards.map(({ card: one, isOpen, body }) => {
             const title = (
               <Box flexDirection="row">
