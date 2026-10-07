@@ -19,7 +19,30 @@ export type Config = {
   collapsedCards: ReadonlySet<string>
   customCardMaxItems: number
   paneMaxRows: number
+  /** The quota command split into argv; empty when not set. */
+  quotaArgv: readonly string[]
+  quotaWarn: number
+  quotaCritical: number
+  /** How many ended runs the RUNNING card lists under recent. */
+  recentRows: number
+  /** Whether the mod pins its own status line under the prompt. */
+  statusLine: boolean
+  /** What the status line's left side shows, in order: model, context, quota, mode. */
+  statusLineState: readonly StatePart[]
+  /** The card whose summary the status line's right side shows; '' for none. */
+  statusLineSubinfo: string
 }
+
+export const STATE_PARTS = ['model', 'context', 'quota', 'mode'] as const
+export type StatePart = (typeof STATE_PARTS)[number]
+
+const stateParts = (v: unknown): StatePart[] =>
+  typeof v !== 'string'
+    ? [...STATE_PARTS]
+    : v
+        .split(/[,\s]+/)
+        .map(p => p.trim().toLowerCase())
+        .filter((p): p is StatePart => (STATE_PARTS as readonly string[]).includes(p))
 
 /** A card's id: its title in lower case, runs of other characters as one dash. */
 export const cardId = (title: string): string =>
@@ -101,6 +124,7 @@ const toPattern = (raw: string): RegExp | null => {
 export const parseConfig = (options: RawOptions | undefined): Config => {
   const o = options ?? {}
   const warn = num(o['contextWarnPercent'], 70, 1, 100)
+  const quotaWarn = num(o['quotaWarnPercent'], 70, 1, 100)
   return {
     channelNames: parsePairs(str(o['channelNames'])),
     replyTools: new Set(
@@ -127,6 +151,13 @@ export const parseConfig = (options: RawOptions | undefined): Config => {
     ),
     customCardMaxItems: Math.round(num(o['customCardMaxItems'], 5, 1, 100)),
     paneMaxRows: Math.round(num(o['paneMaxRows'], 44, 10, 500)),
+    quotaArgv: splitArgv(str(o['quotaCommand'])),
+    quotaWarn,
+    quotaCritical: Math.max(quotaWarn, num(o['quotaCriticalPercent'], 90, 1, 100)),
+    recentRows: Math.round(num(o['recentRows'], 5, 0, 30)),
+    statusLine: o['statusLine'] === true,
+    statusLineState: stateParts(o['statusLineState']),
+    statusLineSubinfo: cardId(typeof o['statusLineSubinfo'] === 'string' ? o['statusLineSubinfo'] : 'schedule'),
   }
 }
 

@@ -1,12 +1,18 @@
 {
   "name": "agent-monitor",
-  "version": "0.3.1",
-  "description": "A side pane (and a band above the prompt) tracking channel messages waiting for a reply, running tool calls and subagents, external dispatches, custom cards from your own commands, and the session itself.",
+  "version": "0.4.0",
+  "description": "A side pane (and a band above the prompt) tracking channel messages waiting for a reply, running and recently ended tool calls and subagents, rate-limit quota, external dispatches, custom cards from your own commands, and the session itself; cards can be reordered, moved to the band or hidden without commands.",
   "author": {
     "name": "NeriakTo"
   },
   "license": "MIT",
-  "keywords": ["claude-code-mod", "monitor", "pane", "dispatch"],
+  "keywords": [
+    "claude-code-mod",
+    "monitor",
+    "pane",
+    "dispatch",
+    "quota"
+  ],
   "types": "./types/index.d.ts",
   "userConfig": {
     "channelNames": {
@@ -72,7 +78,7 @@
     "customCards": {
       "type": "string",
       "title": "Custom cards",
-      "description": "Extra cards as TITLE=command pairs separated by ;; (the command runs without a shell, read-only, 10 s timeout). It prints one JSON object: {\"summary\": \"one line\", \"items\": [{\"mark\": \"running|stalled|done|failed|idle|waiting|warn\", \"text\": \"...\", \"right\": \"...\"}], \"empty\": \"text when there are no items\"}. Empty adds no cards.",
+      "description": "Extra cards as TITLE=command pairs separated by ;; (the command runs without a shell, read-only, 10 s timeout). It prints one JSON object: {\"summary\": \"one line\", \"badge\": \"optional title text in place of the item count\", \"items\": [{\"mark\": \"running|stalled|done|failed|idle|waiting|warn\", \"text\": \"...\", \"right\": \"...\", \"group\": \"optional heading\"}], \"empty\": \"text when there are no items\"}. Items that name a group are listed under one gray heading per group. Empty adds no cards.",
       "default": ""
     },
     "openOnStart": {
@@ -90,7 +96,7 @@
     "collapsedCards": {
       "type": "string",
       "title": "Collapsed by default",
-      "description": "Comma-separated card ids collapsed until you expand them (ids: inbox, running, dispatches, session, and each custom card's title in lower case with dashes).",
+      "description": "Comma-separated card ids collapsed until you expand them (ids: quota, inbox, running, dispatches, session, and each custom card's title in lower case with dashes).",
       "default": "session"
     },
     "customCardMaxItems": {
@@ -104,6 +110,48 @@
       "title": "Pane height (rows)",
       "description": "Rows the pane may use when the surface does not report its height. Past it, expanded cards are shortened first so every card's title stays visible.",
       "default": 44
+    },
+    "quotaCommand": {
+      "type": "string",
+      "title": "Quota command",
+      "description": "A read-only command (no shell, 10 s timeout, run every 60 s and when the pane opens) that prints rate-limit rows as JSON: {\"rows\": [{\"name\": \"Alpha\", \"usedPercent\": 42 or null, \"resetsAt\": \"ISO time or empty\", \"fetchedAt\": \"ISO time\", \"maxAgeSeconds\": 300}]}. A row older than twice maxAgeSeconds is shown gray with its age. Claude's own 5-hour and weekly windows are added by the mod. Empty shows Claude's windows only and runs nothing.",
+      "default": ""
+    },
+    "quotaWarnPercent": {
+      "type": "number",
+      "title": "Quota warning (%)",
+      "description": "A quota window at or above this is shown in the warning color with a ! after its percent.",
+      "default": 70
+    },
+    "quotaCriticalPercent": {
+      "type": "number",
+      "title": "Quota critical (%)",
+      "description": "A quota window at or above this is shown in the error color with !! after its percent, and the band adds its reset time. Never below the warning line.",
+      "default": 90
+    },
+    "recentRows": {
+      "type": "number",
+      "title": "Recent runs",
+      "description": "How many ended Bash calls and subagents (each run of at least 10 s) the RUNNING card lists under recent. Kept across reloads.",
+      "default": 5
+    },
+    "statusLine": {
+      "type": "boolean",
+      "title": "Status line",
+      "description": "Pin the mod's own one-line status under the prompt: the State parts on the left, then │ and the Subinfo card's summary on the right. Off by default.",
+      "default": false
+    },
+    "statusLineState": {
+      "type": "string",
+      "title": "Status line: State",
+      "description": "Comma-separated parts for the status line's left side, in this order: model (the main model), context (context left, ! and !! past the context lines), quota (the tightest quota window), mode (the permission mode, once a prompt, tool call or stop has carried it; default is not shown). Empty shows none.",
+      "default": "model,context,quota,mode"
+    },
+    "statusLineSubinfo": {
+      "type": "string",
+      "title": "Status line: Subinfo",
+      "description": "The id of the card whose summary the status line shows on the right, as TITLE count · summary (e.g. schedule, a custom card; or running, dispatches). While the pane is closed, a custom card named here is still read every 60 s. Empty shows none.",
+      "default": "schedule"
     }
   }
 }

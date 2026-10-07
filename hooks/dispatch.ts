@@ -1,5 +1,5 @@
 // External dispatches: the configured command's argv, its JSONL events, and pairing them by dispatch_id.
-import type { DispatchRow, DispatchState } from '../types'
+import type { DispatchRow, DispatchState, DispatchView } from '../types'
 import type { Config } from './config'
 import { MINUTE, cut, runtimeLabel } from './logic'
 
@@ -113,6 +113,19 @@ export const pairDispatches = (cfg: Config, events: readonly DispatchEvent[], no
     .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
     .slice(0, ENDED_LIMIT)
   return [...running, ...stalled, ...ended]
+}
+
+/** What one run of the dispatch command gives: the paired rows, or the one-line reason it gave none. */
+export const dispatchFromRun = (
+  cfg: Config,
+  ran: { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean },
+  now: number,
+): DispatchView => {
+  if (ran.exitCode !== 0) return { rows: [], error: `exit code ${ran.exitCode}: ${oneLine(ran.stderr || ran.stdout)}`, fetchedAt: now }
+  if (ran.isStdoutTruncated) return { rows: [], error: 'output too large, cut off', fetchedAt: now }
+  const parsed = parseJsonl(ran.stdout)
+  if (parsed.error !== null) return { rows: [], error: parsed.error, fetchedAt: now }
+  return { rows: pairDispatches(cfg, parsed.events, now), error: null, fetchedAt: now }
 }
 
 /** First non-empty line of an error, kept short. */

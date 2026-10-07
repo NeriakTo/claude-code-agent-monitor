@@ -2,20 +2,36 @@
 // Neither computes a figure or a threshold: both read the Model, and both take their status
 // symbols and colors from statusMark/levelMark below, so the two always agree.
 import { cut, displayWidth, duration, truncateWidth } from './logic'
-import type { Level, Model, Status } from './model'
+import { resetText } from './quota'
+import type { Level, Model, QuotaLine, Status } from './model'
 
 /**
  * Every non-ASCII character either view may draw. Terminal fonts (PuTTY's included) have these;
  * anything else risks a box glyph. The round card borders are drawn by the surface, listed too.
+ * The gauge square and the move arrows (■↑↓) are in the Windows console's code page 437 as well.
+ * Shading blocks (░▒▓) and the full block (█) are left out: shading turns to noise in some
+ * terminals, and full blocks on neighbouring rows merge into one.
  */
-export const SYMBOLS = '●✓✗◌–·│─┊╭╮╰╯'
+export const SYMBOLS = '●✓✗◌–·│─┊╭╮╰╯■↑↓'
 
 /** The card toggles: ASCII, so every font has them. */
 export const TOGGLE = { expanded: '-', collapsed: '+' } as const
 
 /** Color roles; textProps maps them to named terminal colors only. */
 export type Tone = 'accent' | 'ok' | 'warn' | 'critical' | 'muted' | 'plain'
-export type Run = { text: string; tone: Tone; bold?: boolean }
+/**
+ * One styled piece of a line. With `button`, the piece is drawn as a plain Button whose label is
+ * `button.label`; `text` is what the terminal shows for it (`h: Hide` when it has a hotkey), so
+ * widths stay right.
+ */
+export type Run = { text: string; tone: Tone; bold?: boolean; button?: { key: string; label: string; hotkey?: string } }
+
+/** A plain Button as a run: the terminal draws `hotkey: label`, or the label alone. */
+export const buttonRun = (key: string, label: string, hotkey?: string): Run => ({
+  text: hotkey === undefined ? label : `${hotkey}: ${label}`,
+  tone: 'plain',
+  button: { key, label, ...(hotkey === undefined ? {} : { hotkey }) },
+})
 export type Line = Run[]
 
 export const textProps = (run: Run): { color?: string; dimColor?: boolean; bold?: boolean } => {
@@ -65,7 +81,7 @@ export const levelMark = (level: Level, isEmpty: boolean): Run =>
 /** A count colored by state: gray at zero. */
 export const count = (n: number, tone: Tone): Run => ({ text: String(n), tone: n === 0 ? 'muted' : tone, bold: n > 0 })
 
-const lineWidth = (line: Line): number => line.reduce((w, r) => w + displayWidth(r.text), 0)
+export const lineWidth = (line: Line): number => line.reduce((w, r) => w + displayWidth(r.text), 0)
 
 /** Cuts a line to `width` cells, the last run that does not fit ending in `~`. */
 export const fitLine = (line: Line, width: number): Line => {
@@ -78,7 +94,8 @@ export const fitLine = (line: Line, width: number): Line => {
       left -= w
       continue
     }
-    if (left > 0) out.push({ ...run, text: truncateWidth(run.text, left) })
+    // A button is never cut: it is dropped whole when it does not fit.
+    if (left > 0 && run.button === undefined) out.push({ ...run, text: truncateWidth(run.text, left) })
     break
   }
   return out
@@ -101,18 +118,87 @@ export const restartRun = (m: Model): Run | null =>
     ? null
     : { text: m.context.level === 'error' ? 'restart now' : 'restart soon', tone: levelTone(m.context.level), bold: true }
 
+// ---------- quota figures, shared by the band and the pane ----------
+
+/** The tone a quota figure takes: green below the warning line, yellow past it, red past the critical one, gray when stale. */
+export const quotaTone = (row: QuotaLine): Tone =>
+  row.isStale ? 'muted' : row.level === 'error' ? 'critical' : row.level === 'warning' ? 'warn' : 'ok'
+
+/** `!` past the warning line, `!!` past the critical one, so the state never rests on color alone. */
+export const quotaFlag = (row: QuotaLine): string => (row.isStale ? '' : row.level === 'error' ? '!!' : row.level === 'warning' ? '!' : '')
+
+export const percentText = (row: QuotaLine): string => (row.usedPercent === null ? '--' : `${Math.round(row.usedPercent)}%`)
+
+/** The band's short name: `Claude 5h` is `5h`, other sources keep their name. */
+export const shortQuotaName = (name: string): string => cut(name.replace(/^Claude /, ''), 12)
+
 // ---------- the band ----------
 
-export type Segment = { key: 'inbox' | 'now' | 'context' | 'reply'; runs: Line }
+export type Segment = {
+  key: 'inbox' | 'now' | 'context' | 'quota' | 'card' | 'reply'
+  runs: Line
+  /** A tighter form tried before the segment is dropped (the quota's `Q 61%`). */
+  compact?: Line
+}
 
 export const SEPARATOR: Run = { text: '  │  ', tone: 'muted' }
 
+/** What else the band shows: the quota (unless hidden), and the cards placed on the band. */
+export type BandExtras = {
+  isQuotaHidden?: boolean
+  isQuotaOnBand?: boolean
+  /** The pane's own render of a card placed on the band: its title and collapsed summary. */
+  cards?: readonly { title: string; summary: Line }[]
+  /** Clock times for the reset, in this zone. */
+  resetLabel?: (row: QuotaLine) => string
+}
+
+/** The band's extras from the person's arrangement: QUOTA hidden or on the band, the cards placed there, reset times. */
+export const bandExtras = (
+  m: Model,
+  opts: { hidden: readonly string[]; placement?: Readonly<Record<string, string>> },
+  band: readonly { id: string; title: string; summary: Line }[],
+  timeZone: string,
+): BandExtras => ({
+  isQuotaHidden: opts.hidden.includes('quota'),
+  isQuotaOnBand: opts.placement?.['quota'] === 'band',
+  cards: band.filter(card => card.id !== 'quota'),
+  resetLabel: row => resetText(row.resetsAt, m.now, timeZone),
+})
+
+const quotaSegment = (m: Model, extras: BandExtras): Segment | null => {
+  const top = m.quota.tightest
+  if (top === null || extras.isQuotaHidden === true) return null
+  const tone = quotaTone(top)
+  const flag = quotaFlag(top)
+  const reset = top.level === 'normal' ? '' : (extras.resetLabel?.(top) ?? '')
+  return {
+    key: 'quota',
+    runs: [
+      levelMark(top.level, false),
+      { text: ' QUOTA ', tone: 'plain', bold: true },
+      { text: `${shortQuotaName(top.name)} `, tone: 'plain' },
+      { text: percentText(top), tone, bold: top.level !== 'normal' },
+      ...(flag === '' ? [] : [{ text: ` ${flag}`, tone, bold: true }]),
+      ...(reset === '' ? [] : [{ text: ` resets ${reset}`, tone: 'muted' as Tone }]),
+    ],
+    compact: [{ text: 'Q ', tone: 'plain', bold: true }, { text: `${percentText(top)}${flag}`, tone, bold: top.level !== 'normal' }],
+  }
+}
+
+/** A card placed on the band: its title, then its collapsed summary cut to 40 cells. */
+const cardSegment = (card: { title: string; summary: Line }): Segment => ({
+  key: 'card',
+  runs: [{ text: `${cut(card.title, 16)} `, tone: 'plain', bold: true }, ...fitLine(card.summary, 40)],
+})
+
 /**
  * The band's segments. With the pane closed: INBOX, NOW, the restart warning (only past the
- * warning line) and the last reply. With the pane open the pane says the rest, so the band keeps
- * only what is past a threshold; nothing past one means no band at all (an empty list).
+ * warning line), the tightest quota, cards placed on the band, and the last reply. With the pane
+ * open the pane says the rest, so the band keeps only what is past a threshold (and the cards the
+ * person put there); nothing left means no band at all (an empty list).
  */
-export const bandSegments = (m: Model, isPaneOpen: boolean): Segment[] => {
+export const bandSegments = (m: Model, isPaneOpen: boolean, extras: BandExtras = {}): Segment[] => {
   const [oldest] = m.inbox.groups
   const inbox: Segment = {
     key: 'inbox',
@@ -146,23 +232,97 @@ export const bandSegments = (m: Model, isPaneOpen: boolean): Segment[] => {
   const restart = restartRun(m)
   const context: Segment | null =
     restart === null ? null : { key: 'context', runs: [{ text: '●', tone: restart.tone }, { text: ' ', tone: 'plain' }, restart] }
+  const quota = quotaSegment(m, extras)
+  const cards = (extras.cards ?? []).map(cardSegment)
   if (isPaneOpen) {
+    const isQuotaUrgent = quota !== null && (m.quota.tightest?.level !== 'normal' || extras.isQuotaOnBand === true)
     return [
       ...(m.inbox.level !== 'normal' ? [inbox] : []),
       ...(first !== undefined && first.level !== 'normal' ? [now] : []),
       ...(context === null ? [] : [context]),
+      ...(isQuotaUrgent && quota !== null ? [quota] : []),
+      ...cards,
     ]
   }
-  return [inbox, now, ...(context === null ? [] : [context]), { key: 'reply', runs: [{ text: replyText(m.lastReplyAgoMs), tone: 'muted' }] }]
+  return [
+    inbox,
+    now,
+    ...(context === null ? [] : [context]),
+    ...(quota === null ? [] : [quota]),
+    ...cards,
+    { key: 'reply', runs: [{ text: replyText(m.lastReplyAgoMs), tone: 'muted' }] },
+  ]
 }
 
-/** The band as one line within `width`: segments drop from the right (last reply, restart, NOW); the first always stays. */
+/**
+ * The band as one line within `width`. When it does not fit: the quota shrinks to `Q 61%`; then the
+ * last reply goes, then cards placed on the band (last first), then the restart warning and NOW as
+ * before; the quota goes last of all. The first segment always stays.
+ */
 export const bandLine = (segments: readonly Segment[], width: number): Line => {
-  const kept = [...segments]
+  let kept = [...segments]
   const join = (list: readonly Segment[]): Line => [
     { text: ' ', tone: 'plain' },
     ...list.flatMap((s, i) => (i > 0 ? [SEPARATOR, ...s.runs] : s.runs)),
   ]
-  while (kept.length > 1 && lineWidth(join(kept)) > width) kept.pop()
+  const fits = (): boolean => lineWidth(join(kept)) <= width
+  const drop = (key: Segment['key']): boolean => {
+    const at = kept.map(s => s.key).lastIndexOf(key)
+    if (at <= 0) return false
+    kept = kept.filter((_, i) => i !== at)
+    return true
+  }
+  if (!fits()) kept = kept.map(s => (s.compact === undefined ? s : { ...s, runs: s.compact }))
+  if (!fits()) drop('reply')
+  while (!fits() && drop('card')) {
+    // one card at a time, from the right
+  }
+  for (const key of ['context', 'now', 'quota'] as const) if (!fits()) drop(key)
+  while (kept.length > 1 && !fits()) kept.pop()
   return fitLine(join(kept), width)
+}
+
+// ---------- the status line ($.ui.status: one line of plain text) ----------
+
+/** Permission modes as the status line names them; `default` is not shown, as Claude Code does not. */
+const MODE_NAMES: Readonly<Record<string, string>> = {
+  acceptEdits: 'accept edits',
+  bypassPermissions: 'bypass permissions',
+  plan: 'plan mode',
+  auto: 'auto mode',
+  dontAsk: "don't ask",
+}
+
+/** Between the State (left) and the Subinfo (right): the line has no width to pad to. */
+export const STATUS_DIVIDER = ' │ '
+
+const plainText = (line: Line): string => line.map(run => run.text).join('').trim()
+
+/**
+ * The status line: the State parts asked for, then, after STATUS_DIVIDER, the Subinfo card as
+ * `TITLE count · summary`. Plain text, so a past-threshold figure carries `!` or `!!`. A part with
+ * nothing known yet is left out, never guessed; undefined when nothing at all is known.
+ */
+export const statusLineText = (
+  m: Model,
+  parts: readonly ('model' | 'context' | 'quota' | 'mode')[],
+  info: { model: string | null; permissionMode: string | null },
+  sub: { title: string; badge: Line; summary: Line } | null,
+): string | undefined => {
+  const flag = (level: Level): string => (level === 'error' ? ' !!' : level === 'warning' ? ' !' : '')
+  const c = m.context
+  const top = m.quota.tightest
+  const mode = info.permissionMode === null ? '' : info.permissionMode === 'default' ? '' : (MODE_NAMES[info.permissionMode] ?? info.permissionMode)
+  const text: Record<(typeof parts)[number], string> = {
+    model: info.model === null ? '' : cut(info.model, 24),
+    context: c === null ? '' : `ctx ${Math.max(0, 100 - c.percent)}% left${flag(c.level)}`,
+    quota: top === null ? '' : `quota ${shortQuotaName(top.name)} ${percentText(top)}${flag(top.level)}`,
+    mode,
+  }
+  const left = parts.map(p => text[p]).filter(t => t !== '').join(' · ')
+  const count = plainText(sub?.badge.slice(0, 1) ?? [])
+  const summary = sub === null ? '' : plainText(sub.summary)
+  const right = sub === null ? '' : [`${sub.title}${count === '' ? '' : ` ${count}`}`, summary].filter(t => t !== '').join(' · ')
+  if (left === '' && right === '') return undefined
+  return left === '' ? right : right === '' ? left : `${left}${STATUS_DIVIDER}${right}`
 }

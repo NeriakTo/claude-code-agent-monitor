@@ -127,6 +127,10 @@ export const dueAlerts = (
   return { pending: due.length === 0 ? [...pending] : next, due }
 }
 
+/** The one toast a message gets when it has waited past the alert line. */
+export const waitingToast = (cfg: Config, p: Pending): string =>
+  `Inbox: a message has waited ${Math.round(cfg.waitingAlertMs / MINUTE)}m without a reply (${channelLabel(cfg, p.server, p.chatId)})`
+
 // ---------- servers, channel names and reply tools ----------
 
 /** How an MCP tool name spells a server name: anything but letters, digits, _ and - becomes _. */

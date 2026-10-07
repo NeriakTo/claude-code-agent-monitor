@@ -1,5 +1,6 @@
 // Custom cards: the JSON a configured command prints, checked before it is drawn.
 import type { CustomMark, CustomView } from '../types'
+import { oneLine } from './dispatch'
 import { cut } from './logic'
 
 const MARKS: readonly CustomMark[] = ['running', 'stalled', 'done', 'failed', 'idle', 'waiting', 'warn']
@@ -9,7 +10,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const text = (v: unknown, n: number): string => (typeof v === 'string' ? cut(v.replace(/\s+/g, ' ').trim(), n) : '')
 
 /** The card a command's stdout describes, or the one-line reason it does not describe one. */
-export const parseCustomOutput = (stdout: string): Pick<CustomView, 'summary' | 'items' | 'empty'> | string => {
+export const parseCustomOutput = (stdout: string): Pick<CustomView, 'summary' | 'badge' | 'items' | 'empty'> | string => {
   let raw: unknown
   try {
     raw = JSON.parse(stdout)
@@ -21,18 +22,32 @@ export const parseCustomOutput = (stdout: string): Pick<CustomView, 'summary' | 
   const items = (Array.isArray(raw['items']) ? raw['items'] : []).filter(isRecord).slice(0, CUSTOM_ITEM_LIMIT)
   return {
     summary: text(raw['summary'], 80),
+    badge: text(raw['badge'], 30),
     empty: text(raw['empty'], 60) || 'nothing to show',
-    items: items.map(item => ({
-      mark: MARKS.includes(item['mark'] as CustomMark) ? (item['mark'] as CustomMark) : 'idle',
-      text: text(item['text'], 80),
-      right: text(item['right'], 12),
-    })),
+    items: items.map(item => {
+      const group = text(item['group'], 40)
+      return {
+        mark: MARKS.includes(item['mark'] as CustomMark) ? (item['mark'] as CustomMark) : 'idle',
+        text: text(item['text'], 80),
+        right: text(item['right'], 12),
+        // Optional: items that name a group are listed under a heading per group.
+        ...(group === '' ? {} : { group }),
+      }
+    }),
   }
+}
+
+/** A custom card after one run of its command: its JSON, or the one-line reason it gave none. */
+export const customFromRun = (base: CustomView, ran: { exitCode: number; stdout: string; stderr: string }): CustomView => {
+  if (ran.exitCode !== 0) return { ...base, error: `exit code ${ran.exitCode}: ${oneLine(ran.stderr || ran.stdout)}` }
+  const parsed = parseCustomOutput(ran.stdout)
+  return typeof parsed === 'string' ? { ...base, error: parsed } : { ...base, ...parsed }
 }
 
 export const emptyCustom = (card: { id: string; title: string }): CustomView => ({
   ...card,
   summary: '',
+  badge: '',
   items: [],
   empty: '',
   error: null,

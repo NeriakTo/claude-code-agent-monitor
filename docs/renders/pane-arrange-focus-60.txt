@@ -1,0 +1,14 @@
+╭──────────────────────────────────────────────────────────╮
+│ AGENT MONITOR                                Done  12:47 │
+│ Arrange: move, place or hide cards. Changes are kept.    │
+│ Each change is saved at once; Done only leaves.          │
+│ Pick a card: Tab or arrow keys, or click. Keys u d b h.  │
+│ ↑ ↓ move · B/P band or pane · H hide                     │
+╰──────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────╮
+│  QUOTA                                             ↓ B H │
+│  RUNNING                             u: ↑ d: ↓ b: B h: H │
+│  PROJECTS                                        ↑   B H │
+╰──────────────────────────────────────────────────────────╯
+ hidden: inbox, session
+ updated 12:47 · refresh 60s · 2 hidden                Show
