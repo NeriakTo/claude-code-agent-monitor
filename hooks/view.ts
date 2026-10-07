@@ -7,9 +7,11 @@ import type { Level, Model, QuotaLine, Status } from './model'
 /**
  * Every non-ASCII character either view may draw. Terminal fonts (PuTTY's included) have these;
  * anything else risks a box glyph. The round card borders are drawn by the surface, listed too.
- * The gauge blocks and the move arrows (█░↑↓) are in the Windows console's code page 437 as well.
+ * The gauge square and the move arrows (■↑↓) are in the Windows console's code page 437 as well.
+ * Shading blocks (░▒▓) and the full block (█) are left out: shading turns to noise in some
+ * terminals, and full blocks on neighbouring rows merge into one.
  */
-export const SYMBOLS = '●✓✗◌–·│─┊╭╮╰╯█░↑↓'
+export const SYMBOLS = '●✓✗◌–·│─┊╭╮╰╯■↑↓'
 
 /** The card toggles: ASCII, so every font has them. */
 export const TOGGLE = { expanded: '-', collapsed: '+' } as const

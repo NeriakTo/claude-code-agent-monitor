@@ -20,8 +20,11 @@ import {
 } from './view'
 import type { Line, Run, Tone } from './view'
 
-/** `maxLines`: most detail lines shown when expanded; the rest fold into one `+N more` line. */
-export type Card = { id: string; title: string; badge: Line; summary: Line; lines: Line[]; maxLines?: number }
+/**
+ * `maxLines`: most detail lines shown when expanded; the rest fold into one `+N more` line.
+ * `isPinned`: every line is always shown (QUOTA): no `+N more`, and never shortened to fit the height.
+ */
+export type Card = { id: string; title: string; badge: Line; summary: Line; lines: Line[]; maxLines?: number; isPinned?: boolean }
 /**
  * `cards`: the pane's cards in the person's order. `footer`: the hidden-cards line (when some are
  * hidden), the updated line, and the hidden cards one by one when the person asked to see them.
@@ -239,6 +242,7 @@ const quotaCard = (m: Model, inner: number, timeZone: string): Card => {
   return {
     id: 'quota',
     title: 'QUOTA',
+    isPinned: true,
     badge: top === null ? [] : [{ text: 'tightest ', tone: 'muted' }, ...topRuns(top)],
     summary:
       top === null
@@ -336,6 +340,13 @@ const itemLine = (i: CustomItem, inner: number): Line =>
  * does (failed, warn and stalled first) and the rest fold into one `+N more` row; headings do not
  * count against the cap.
  */
+/**
+ * How many items a line stands for when the height fit folds it into `+N more`: a group heading
+ * stands for none, a grouped card's own `+N more` for its N; any other line for one.
+ */
+const ITEM_COUNT = new WeakMap<Line, number>()
+const counted = (line: Line, n: number): Line => (ITEM_COUNT.set(line, n), line)
+
 const groupedLines = (items: readonly CustomItem[], inner: number, maxItems: number): Line[] => {
   const chosen = new Set(visibleFirst(items, maxItems).slice(0, maxItems))
   const groups = [...new Set(items.map(i => i.group ?? ''))]
@@ -344,11 +355,11 @@ const groupedLines = (items: readonly CustomItem[], inner: number, maxItems: num
     const all = items.filter(i => (i.group ?? '') === group)
     const shownItems = all.filter(i => chosen.has(i))
     if (shownItems.length === 0) continue
-    if (group !== '') lines.push(spread([{ text: group, tone: 'muted' }], [{ text: String(all.length), tone: 'muted' }], inner))
+    if (group !== '') lines.push(counted(spread([{ text: group, tone: 'muted' }], [{ text: String(all.length), tone: 'muted' }], inner), 0))
     lines.push(...shownItems.map(i => itemLine(i, inner)))
   }
   const rest = items.length - chosen.size
-  return rest > 0 ? [...lines, moreLine(rest)] : lines
+  return rest > 0 ? [...lines, counted(moreLine(rest), rest)] : lines
 }
 
 const customCard = (m: Model, view: Model['custom'][number], inner: number, maxItems: number): Card => {
@@ -547,8 +558,11 @@ export type Layout = { head: Line[]; cards: Placed[]; showFooter: boolean }
 const moreLine = (hidden: number): Line => muted(`+${hidden} more`)
 
 /** The first `keep` rows of `lines`, the last of them a `+N more` line when some are hidden. */
-const shown = (lines: readonly Line[], keep: number): Line[] =>
-  keep >= lines.length ? [...lines] : [...lines.slice(0, Math.max(0, keep - 1)), moreLine(lines.length - Math.max(0, keep - 1))]
+const shown = (lines: readonly Line[], keep: number): Line[] => {
+  if (keep >= lines.length) return [...lines]
+  const hidden = lines.slice(Math.max(0, keep - 1)).reduce((n, line) => n + (ITEM_COUNT.get(line) ?? 1), 0)
+  return [...lines.slice(0, Math.max(0, keep - 1)), moreLine(hidden)]
+}
 
 /** Rows a round card takes: its border (2), its title row and its body. */
 const CARD_FRAME = 3
@@ -556,12 +570,18 @@ const CARD_FRAME = 3
 /**
  * Lays the cards into `maxRows`: collapsed cards keep their one summary row; expanded ones show up
  * to their maxLines, then the longest is shortened a row at a time (down to one `+N more` row) until
- * everything fits, so every card's title row stays on screen. The footer goes last of all.
+ * everything fits, so every card's title row stays on screen. The footer goes last of all. A pinned
+ * card (QUOTA) is never shortened: when nothing else can give way, the pane runs past `maxRows`
+ * and scrolls rather than hide a quota row.
  */
 export const layoutPane = (doc: PaneDoc, isOpen: (id: string) => boolean, maxRows: number): Layout => {
   const open = doc.cards.map(card => isOpen(card.id))
   const keep = doc.cards.map((card, i) =>
-    !open[i] ? 1 : card.maxLines !== undefined && card.lines.length > card.maxLines ? card.maxLines + 1 : card.lines.length,
+    !open[i]
+      ? 1
+      : card.isPinned !== true && card.maxLines !== undefined && card.lines.length > card.maxLines
+        ? card.maxLines + 1
+        : card.lines.length,
   )
   let showFooter = true
   const total = (): number =>
@@ -569,7 +589,7 @@ export const layoutPane = (doc: PaneDoc, isOpen: (id: string) => boolean, maxRow
   while (total() > maxRows) {
     let longest = -1
     keep.forEach((k, i) => {
-      if (open[i] && k > 1 && (longest === -1 || k > (keep[longest] ?? 0))) longest = i
+      if (open[i] && doc.cards[i]?.isPinned !== true && k > 1 && (longest === -1 || k > (keep[longest] ?? 0))) longest = i
     })
     if (longest === -1) {
       if (!showFooter) break

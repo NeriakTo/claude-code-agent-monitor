@@ -7,7 +7,7 @@ import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 import type { Action, AgentRun, ContextMark, CustomView, DispatchView, Pending, Placement, QuotaView, RecentRun, SessionInfo } from '../types'
 import { parseConfig, resolveCards } from './config'
 import type { Config } from './config'
-import { dispatchArgv, oneLine, pairDispatches, parseJsonl } from './dispatch'
+import { dispatchArgv, dispatchFromRun, oneLine } from './dispatch'
 import {
   addPending,
   appendChannelText,
@@ -25,7 +25,7 @@ import {
 import type { ChannelMessage } from './logic'
 import { buildModel } from './model'
 import { cardIds, cardOfKey, movedOrder, storedIds, storedPlacement } from './arrange'
-import { emptyCustom, parseCustomOutput } from './custom'
+import { customFromRun, emptyCustom } from './custom'
 import { RECENT_MIN_MS, RECORDED_TOOLS, addRecent, endedAgents, storedRecent } from './recent'
 import { arrangedOrder, cardInner, cardTitle, layoutPane, paneDoc } from './pane'
 import type { PaneOptions } from './pane'
@@ -134,30 +134,16 @@ const REFRESH_STALE_MS = 45_000
 
 const readDispatches = async ($: $, cfg: Config, now: number): Promise<DispatchView> => {
   try {
-    const ran = await $.process.run(dispatchArgv(cfg, now), { timeoutMs: COMMAND_TIMEOUT_MS })
-    if (ran.exitCode !== 0) {
-      return { rows: [], error: `exit code ${ran.exitCode}: ${oneLine(ran.stderr || ran.stdout)}`, fetchedAt: now }
-    }
-    if (ran.isStdoutTruncated) return { rows: [], error: 'output too large, cut off', fetchedAt: now }
-    const parsed = parseJsonl(ran.stdout)
-    if (parsed.error !== null) return { rows: [], error: parsed.error, fetchedAt: now }
-    return { rows: pairDispatches(cfg, parsed.events, now), error: null, fetchedAt: now }
+    return dispatchFromRun(cfg, await $.process.run(dispatchArgv(cfg, now), { timeoutMs: COMMAND_TIMEOUT_MS }), now)
   } catch (err) {
     return { rows: [], error: oneLine(errText(err)), fetchedAt: now }
   }
 }
 
-const readCustom = async (
-  $: $,
-  card: Config['customCards'][number],
-  now: number,
-): Promise<CustomView> => {
+const readCustom = async ($: $, card: Config['customCards'][number], now: number): Promise<CustomView> => {
   const base = { ...emptyCustom(card), fetchedAt: now }
   try {
-    const ran = await $.process.run(card.argv, { timeoutMs: CUSTOM_TIMEOUT_MS })
-    if (ran.exitCode !== 0) return { ...base, error: `exit code ${ran.exitCode}: ${oneLine(ran.stderr || ran.stdout)}` }
-    const parsed = parseCustomOutput(ran.stdout)
-    return typeof parsed === 'string' ? { ...base, error: parsed } : { ...base, ...parsed }
+    return customFromRun(base, await $.process.run(card.argv, { timeoutMs: CUSTOM_TIMEOUT_MS }))
   } catch (err) {
     return { ...base, error: oneLine(errText(err)) }
   }
@@ -173,11 +159,8 @@ const setExpanded = async ($: $, cfg: Config, which: string, isExpanded: boolean
   const match = resolveCards(await liveCardIds($, cfg), which)
   if ('error' in match) return []
   const target = match.ids
-  let next: Record<string, boolean> = {}
-  await update($, expandedA, map => {
-    next = { ...map, ...Object.fromEntries(target.map(id => [id, isExpanded])) }
-    return next
-  })
+  const next: Record<string, boolean> = { ...(await read($, expandedA)), ...Object.fromEntries(target.map(id => [id, isExpanded])) }
+  await update($, expandedA, () => next)
   await $.store.set(STORE_EXPANDED, next)
   return target
 }
@@ -189,21 +172,14 @@ const arrangeCards = async ($: $, cfg: Config, verb: string, which: string, valu
   const target = match.ids
   if (verb === 'hide' || verb === 'show') {
     if (verb === 'hide' && which === 'all') return 'Hide cards one at a time; the header card always stays.'
-    let next: string[] = []
-    await update($, hiddenA, list => {
-      next = verb === 'hide' ? [...new Set([...list, ...target])] : list.filter(id => !target.includes(id))
-      return next
-    })
-    await $.store.set(STORE_HIDDEN, next)
+    await saveHidden($, list => (verb === 'hide' ? [...new Set([...list, ...target])] : list.filter(id => !target.includes(id))))
     return `${verb === 'hide' ? 'Hidden' : 'Shown'}: ${target.join(', ')}.`
   }
   const n = Number(value)
   if (value !== 'default' && !(Number.isInteger(n) && n >= 1 && n <= 30)) return 'Rows takes a whole number from 1 to 30, or default.'
-  let next: Record<string, number> = {}
-  await update($, rowsA, map => {
-    next = Object.fromEntries(Object.entries({ ...map, ...Object.fromEntries(target.map(id => [id, n])) }).filter(([id]) => !(value === 'default' && target.includes(id))))
-    return next
-  })
+  const merged = { ...(await read($, rowsA)), ...Object.fromEntries(target.map(id => [id, n])) }
+  const next = Object.fromEntries(Object.entries(merged).filter(([id]) => !(value === 'default' && target.includes(id))))
+  await update($, rowsA, () => next)
   await $.store.set(STORE_ROWS, next)
   return value === 'default' ? `Rows back to default: ${target.join(', ')}.` : `Rows set to ${n}: ${target.join(', ')}.`
 }
@@ -331,12 +307,10 @@ const paneOptions = async ($: $, cfg: Config): Promise<PaneOptions> => ({
   isHiddenRevealed: await read($, revealA),
 })
 
+// Person-driven changes (a press, a command) come one at a time, so read-then-write is safe here.
 const saveHidden = async ($: $, change: (list: string[]) => string[]): Promise<void> => {
-  let next: string[] = []
-  await update($, hiddenA, list => {
-    next = change(list)
-    return next
-  })
+  const next = change(await read($, hiddenA))
+  await update($, hiddenA, () => next)
   await $.store.set(STORE_HIDDEN, next)
 }
 
@@ -350,11 +324,9 @@ const moveCard = async ($: $, cfg: Config, id: string, by: -1 | 1): Promise<void
 }
 
 const togglePlacement = async ($: $, id: string): Promise<void> => {
-  let next: Record<string, Placement> = {}
-  await update($, placementA, map => {
-    next = { ...map, [id]: map[id] === 'band' ? 'pane' : 'band' }
-    return next
-  })
+  const map = await read($, placementA)
+  const next: Record<string, Placement> = { ...map, [id]: map[id] === 'band' ? 'pane' : 'band' }
+  await update($, placementA, () => next)
   await $.store.set(STORE_PLACEMENT, next)
 }
 

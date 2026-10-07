@@ -1,5 +1,6 @@
 // Custom cards: the JSON a configured command prints, checked before it is drawn.
 import type { CustomMark, CustomView } from '../types'
+import { oneLine } from './dispatch'
 import { cut } from './logic'
 
 const MARKS: readonly CustomMark[] = ['running', 'stalled', 'done', 'failed', 'idle', 'waiting', 'warn']
@@ -34,6 +35,13 @@ export const parseCustomOutput = (stdout: string): Pick<CustomView, 'summary' | 
       }
     }),
   }
+}
+
+/** A custom card after one run of its command: its JSON, or the one-line reason it gave none. */
+export const customFromRun = (base: CustomView, ran: { exitCode: number; stdout: string; stderr: string }): CustomView => {
+  if (ran.exitCode !== 0) return { ...base, error: `exit code ${ran.exitCode}: ${oneLine(ran.stderr || ran.stdout)}` }
+  const parsed = parseCustomOutput(ran.stdout)
+  return typeof parsed === 'string' ? { ...base, error: parsed } : { ...base, ...parsed }
 }
 
 export const emptyCustom = (card: { id: string; title: string }): CustomView => ({

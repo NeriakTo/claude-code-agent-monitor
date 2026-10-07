@@ -52,8 +52,8 @@ test('Claude windows from $.session.usage: a QUOTA card first, gauges, aligned p
   expect(text).toMatch(/- QUOTA\s+tightest 61%/)
   const five = out.find(l => l.includes('Claude 5h')) ?? ''
   const week = out.find(l => l.includes('Claude week')) ?? ''
-  expect(five).toMatch(/Claude 5h\s+██████░░░░\s+58%\s+resets 13:10/)
-  expect(week).toMatch(/Claude week\s+██████░░░░\s+61%\s+resets Thu 12:00/)
+  expect(five).toMatch(/Claude 5h\s+■■■■■■····\s+58%\s+resets 13:10/)
+  expect(week).toMatch(/Claude week\s+■■■■■■····\s+61%\s+resets Thu 12:00/)
   expect(five.indexOf('%')).toBe(week.indexOf('%'))
   expect(text.indexOf(' QUOTA ')).toBeLessThan(text.indexOf(' INBOX '))
   expect(w.runs).toEqual([])
@@ -68,7 +68,7 @@ test('quota thresholds: ! past 70% in yellow, !! past 90% in red with the reset 
   await start($)
   await toggle($)
   const ui = await $.ui.mount(pane(100, 200))
-  expect(renderText(await ui.drawn(), 100).join('\n')).toMatch(/Claude 5h\s+███████░░░\s+72%!/)
+  expect(renderText(await ui.drawn(), 100).join('\n')).toMatch(/Claude 5h\s+■■■■■■■···\s+72%!/)
   expect((await ui.find({ type: 'Text', text: '72%' }))?.props['color']).toBe('yellow')
   await ui.unmount()
   expect(await bandText($, 200)).toBe(' ● QUOTA 5h 72% ! resets 13:10')
@@ -97,8 +97,8 @@ test('quotaCommand rows: run without a shell; a reading past twice its period sh
   const out = await lines($, 100)
   const alpha = out.find(l => l.includes('Alpha')) ?? ''
   const beta = out.find(l => l.includes('Beta')) ?? ''
-  expect(alpha).toMatch(/Alpha\s+░░░░░░░░░░\s+2%\s+resets 10\/14\s+│$/)
-  expect(beta).toMatch(/Beta\s+██████████\s+95%\s+40m old/)
+  expect(alpha).toMatch(/Alpha\s+··········\s+2%\s+resets 10\/14\s+│$/)
+  expect(beta).toMatch(/Beta\s+■■■■■■■■■■\s+95%\s+40m old/)
   expect(beta).not.toContain('!')
   expect(out.join('\n')).toMatch(/QUOTA\s+tightest 61%/)
   const ui = await $.ui.mount(pane(100, 200))
@@ -127,7 +127,7 @@ test('a failing, timed-out or non-JSON quotaCommand shows why in the QUOTA card 
     await w.clock.advance(MIN)
     const text = (await lines($, 60)).join('\n')
     expect(text).toContain(reason)
-    expect(text).toMatch(/Claude week\s+██████░░░░\s+61%/)
+    expect(text).toMatch(/Claude week\s+■■■■■■····\s+61%/)
     expect(text).toMatch(/- INBOX\s+│\n│ no messages waiting/)
     expect(text).not.toContain('could not draw')
     await toggle($)
@@ -206,7 +206,7 @@ test('a source with no reading still gets its row, and every quota line stays wi
   await toggle($)
   const out = await lines($, 60)
   expect(out.join('\n')).toMatch(/Gamma\s+no data\s+age unknown/)
-  expect(out.join('\n')).toMatch(/Claude 5h\s+██████████\s+100%!!/)
+  expect(out.join('\n')).toMatch(/Claude 5h\s+■■■■■■■■■■\s+100%!!/)
   for (const l of out) expect([...l].length).toBeLessThanOrEqual(60)
   expect(offList(out.join('\n'))).toEqual([])
 })
@@ -224,4 +224,69 @@ test('quotaCommand runs once at start, once when the pane opens, then once a min
   await toggle($)
   await w.clock.advance(2 * MIN)
   expect(quotaRuns()).toBe(7)
+})
+
+const MANY_ITEMS = (n: number) =>
+  JSON.stringify({ summary: `${n} items`, items: Array.from({ length: n }, (_, i) => ({ mark: 'idle', text: `item number ${i + 1}`, right: `${i}m` })), empty: 'none' })
+
+const CROWDED = {
+  options: {
+    quotaCommand: 'quota-tool --json',
+    customCards: 'ONE=one-tool;;TWO=two-tool;;THREE=three-tool',
+    customCardMaxItems: 20,
+    timeZone: 'Asia/Singapore',
+  },
+}
+
+/** The lines of one card in a rendered pane: from its title row to its bottom border. */
+const cardLines = (out: readonly string[], title: string): string[] => {
+  const from = out.findIndex(l => new RegExp(`^│ [-+] ${title} `).test(l))
+  const to = out.findIndex((l, i) => i > from && l.startsWith('╰'))
+  return from === -1 ? [] : out.slice(from, to)
+}
+
+test('QUOTA is never folded: with many cards and a small height every quota row stays and the other cards give way', CROWDED, async ($, on) => {
+  const w = world(on, argv => ok(argv[0] === 'quota-tool' ? ROWS : MANY_ITEMS(20)))
+  w.rateLimits = CLAUDE
+  await start($)
+  await toggle($)
+  await run($, 'rows quota 1')
+  for (const [columns, rows] of [[60, 30], [100, 24], [60, 0]] as const) {
+    const ui = await $.ui.mount(pane(columns, rows))
+    const out = renderText(await ui.drawn(), columns)
+    await ui.unmount()
+    const quota = cardLines(out, 'QUOTA')
+    expect(quota.length, `${columns}x${rows}`).toBe(5)
+    for (const name of ['Claude 5h', 'Claude week', 'Alpha', 'Beta']) expect(quota.some(l => l.includes(name)), name).toBe(true)
+    expect(quota.join('\n')).not.toMatch(/\+\d+ more/)
+    for (const title of ['ONE', 'TWO', 'THREE']) expect(cardLines(out, title).join('\n'), title).toMatch(/\+\d+ more/)
+  }
+})
+
+test('gauges: filled squares and a dim dotted track, no shading or full blocks; name, gauge, percent and reset line up at 60 and 100 columns', QUOTA, async ($, on) => {
+  const w = world(on, () => ok(ROWS))
+  w.rateLimits = CLAUDE
+  await start($)
+  await toggle($)
+  expect(SYMBOLS).toContain('■')
+  for (const ch of ['█', '░', '▒', '▓']) expect(SYMBOLS.includes(ch)).toBe(false)
+  for (const columns of [60, 100]) {
+    const out = await lines($, columns)
+    const rows = cardLines(out, 'QUOTA').slice(1)
+    expect(rows.length).toBe(4)
+    const gauges = rows.map(l => /[■·]{10}/.exec(l))
+    for (const g of gauges) expect(g?.[0].length).toBe(10)
+    expect(new Set(gauges.map(g => g?.index)).size).toBe(1)
+    expect(new Set(rows.map(l => l.indexOf('%'))).size).toBe(1)
+    expect(new Set(rows.filter(l => l.includes('resets')).map(l => l.indexOf('resets'))).size).toBe(1)
+    expect(rows.join('\n')).not.toMatch(/[█░▒▓]/)
+    expect(offList(out.join('\n'))).toEqual([])
+    for (const l of out) expect([...l].length).toBeLessThanOrEqual(columns)
+  }
+  const ui = await $.ui.mount(pane(100, 200))
+  // Below the warning line the filled squares keep the neutral color: neither colored nor dim.
+  const filled = (await ui.find({ type: 'Text', text: '■■■■■■' }))?.props ?? {}
+  expect([filled['color'], filled['dimColor']]).toEqual([undefined, undefined])
+  expect((await ui.find({ type: 'Text', text: '····' }))?.props).toMatchObject({ dimColor: true })
+  await ui.unmount()
 })

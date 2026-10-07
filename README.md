@@ -60,10 +60,10 @@ Type `/monitor` to open or close the pane. This sample is plain text printed by 
 ╰──────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────╮
 │ - QUOTA                                     tightest 61% │
-│ Claude 5h    ██████░░░░   58%   resets 13:51             │
-│ Claude week  ██████░░░░   61%   resets Thu 12:00         │
-│ Alpha        ░░░░░░░░░░    2%   resets 10/14             │
-│ Beta         ░░░░░░░░░░    1%   resets 10/14 1h10m old   │
+│ Claude 5h    ■■■■■■····   58%   resets 13:51             │
+│ Claude week  ■■■■■■····   61%   resets Thu 12:00         │
+│ Alpha        ··········    2%   resets 10/14             │
+│ Beta         ··········    1%   resets 10/14 1h10m old   │
 ╰──────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────╮
 │ - RUNNING                                   1 · 2 recent │
@@ -178,7 +178,7 @@ Every card has a title row with a toggle (`-` expanded, `+` collapsed) and a bad
 
 **Header.** The `Arrange` button and the clock (in `timeZone`), an overview line (`inbox N · now N · agents N` and the time since the last reply) and, past the context warning line, `restart soon` or `restart now`.
 
-**QUOTA.** One row per rate-limit window: Claude's own 5-hour and weekly windows (from Claude Code, the figures its status line shows), then the rows of `quotaCommand`. Each row has a 10-cell gauge (`██████░░░░`, filled cells rounded to the nearest 10%), the percent right-aligned, `!` or `!!` past the thresholds, and when the window resets (`17:10` within a day, `Thu 16:00` within a week, `10/14` after that). Gauges are drawn in the neutral color and change color with the percent only past a threshold. A row read longer ago than twice its source's `maxAgeSeconds` is drawn gray with its age (`1h10m old`) and is never taken as the tightest; a row with no reading says `no data`. The badge is the tightest percent. When `quotaCommand` fails, the card shows `could not read quota: <reason>` above the rows it still has; nothing else changes.
+**QUOTA.** One row per rate-limit window: Claude's own 5-hour and weekly windows (from Claude Code, the figures its status line shows), then the rows of `quotaCommand`. Each row has a 10-cell gauge (`■■■■■■····`: small squares for the used part, rounded to the nearest 10%, and a dim dotted track for the rest; neither touches the cell edges, so gauges on neighbouring rows stay apart), the percent right-aligned, `!` or `!!` past the thresholds, and when the window resets (`17:10` within a day, `Thu 16:00` within a week, `10/14` after that). Gauges are drawn in the neutral color and change color with the percent only past a threshold. A row read longer ago than twice its source's `maxAgeSeconds` is drawn gray with its age (`1h10m old`) and is never taken as the tightest; a row with no reading says `no data`. The badge is the tightest percent. When `quotaCommand` fails, the card shows `could not read quota: <reason>` above the rows it still has; nothing else changes. QUOTA is never folded: it always lists every row, ignores `/monitor rows`, and is never shortened to fit the pane's height (see [Fitting the pane height](#fitting-the-pane-height)).
 
 **INBOX.** Messages delivered by any channel server (for example a Discord channel plugin) that have not been answered, one row per channel with the count (`x2`) and the oldest wait time. A message waiting longer than `waitingAlertMinutes` turns the row to the warning color and shows one toast. A reply clears messages when a reply tool succeeds on the same server, and on the same chat when the reply names a `chat_id`; reactions and edits do not count. The same message delivered twice is counted once.
 
@@ -207,7 +207,7 @@ Both views take their marks and colors from one table, so they always agree.
 | `–` | cancelled | dim |
 | `·` | idle, waiting, or nothing to show | dim |
 | `!` / `!!` | a quota past its warning / critical line | yellow / red |
-| `█░` | a quota gauge: used / left | neutral; yellow or red past a threshold; dim when stale |
+| `■·` | a quota gauge: used / left | used neutral, yellow or red past a threshold; track dim; all dim when stale |
 | `↑ ↓` | move a card up or down (arrange mode) | |
 
 ## Arranging cards
@@ -391,12 +391,14 @@ The mod hooks these events. Apart from `/monitor` and its own two drawings, ever
 
 ### Fitting the pane height
 
-The pane uses the height the terminal reports, or `paneMaxRows` when it reports none. Collapsed cards always take their title and one summary row. When the cards do not fit, the longest expanded card is shortened one row at a time (down to a single `+N more` row) until everything fits; only then is the footer dropped. As long as the height leaves room for each card's frame and title, every card title stays on screen (tested at 30 and 44 rows).
+The pane uses the height the terminal reports, or `paneMaxRows` when it reports none. Collapsed cards always take their title and one summary row. When the cards do not fit, the longest expanded card is shortened one row at a time (down to a single `+N more` row) until everything fits; only then is the footer dropped. As long as the height leaves room for each card's frame and title, every card title stays on screen (tested at 30 and 44 rows). `+N more` counts items: a grouped card's headings are not counted.
+
+`QUOTA` is the exception: it is never shortened. Every quota row stays on screen while the other cards give way; if even that does not fit, the pane runs past the height and scrolls rather than hide a quota row. A sample: [a 30-row pane crowded with cards](docs/renders/pane-quota-crowded-60.txt).
 
 ## Design notes
 
 - **Context usage is left to Claude Code's status line.** Claude Code already shows context usage. Showing the same percentage again in the band and the pane only repeated one number in several places, so the mod shows a context figure only when it calls for action: `restart soon` past `contextWarnPercent`, `restart now` past `contextCriticalPercent`.
-- **A glyph whitelist.** Some terminal fonts cannot draw every Unicode symbol and show a box instead (thin gauge blocks such as `▰▱` and refresh arrows are common offenders). Every non-ASCII character either view may draw is in one whitelist, `●✓✗◌–·│─┊╭╮╰╯█░↑↓`, and a test scans every drawn line against it; the gauge blocks `█░` and the arrows `↑↓` are in the Windows console's code page 437 too. Card toggles are the ASCII `+` and `-`, quota flags the ASCII `!` and `!!`. The mod's own text is ASCII; only text from your channels or commands may contain other characters.
+- **A glyph whitelist.** Some terminal fonts cannot draw every Unicode symbol and show a box instead (thin gauge blocks such as `▰▱` and refresh arrows are common offenders), and shading blocks such as `░` can turn into colored noise. Every non-ASCII character either view may draw is in one whitelist, `●✓✗◌–·│─┊╭╮╰╯■↑↓`, and a test scans every drawn line against it; the gauge square `■` and the arrows `↑↓` are in the Windows console's code page 437 too. Shading and full blocks (`░▒▓█`) are kept out on purpose. Card toggles are the ASCII `+` and `-`, quota flags the ASCII `!` and `!!`. The mod's own text is ASCII; only text from your channels or commands may contain other characters.
 - **No external commands by default.** Only `quotaCommand`, `dispatchCommand` and `customCards` run anything. All are empty by default and run without a shell, with a timeout; the last two only while the pane is open. A fresh install observes and draws; it does not execute.
 - **Quiet until it needs you.** Gauges and percents stay in the neutral color below the warning line; color, `!` and `!!` appear only past a threshold, and stale readings are gray rather than passed off as current.
 - **Arrange mode, apart.** The everyday title row has only the collapse toggle; the move, place and hide buttons appear only in arrange mode, so they never take width in a narrow pane or get pressed by mistake.

@@ -153,3 +153,32 @@ test('renders: the hidden list shown, a card moved from the band back to the pan
   }
   await done()
 })
+
+test('render: a short pane (30 rows) crowded with cards keeps every QUOTA row while the other cards fold', { options: { ...SAMPLE.options, customCards: 'PROJECTS=projects-tool --json;;BACKLOG=backlog-tool', customCardMaxItems: 20 } }, async ($, on) => {
+  const w: World = world(on, argv =>
+    ok(
+      argv[0] === 'quota-tool'
+        ? sampleQuota(w.clock.now())
+        : argv[0] === 'backlog-tool'
+          ? JSON.stringify({ summary: '20 items', items: Array.from({ length: 20 }, (_, i) => ({ mark: 'idle', text: `backlog item ${i + 1}`, right: '' })) })
+          : SAMPLE_PROJECTS,
+    ),
+  )
+  w.rateLimits = [
+    { kind: 'five_hour', percentUsed: 58, resetsAt: iso(T0 + 111 * MIN) },
+    { kind: 'seven_day', percentUsed: 61, resetsAt: iso(T0 + 3 * 24 * 60 * MIN) },
+  ]
+  await start($)
+  await monitor($, '')
+  const ui = await $.ui.mount(pane(60, 30))
+  const out = renderText(await ui.drawn(), 60)
+  await ui.unmount()
+  const text = out.join('\n')
+  expect(text).toMatch(/- QUOTA[^\n]*\n│ Claude 5h[^\n]*\n│ Claude week[^\n]*\n│ Alpha[^\n]*\n│ Beta[^\n]*\n╰/)
+  expect(text).toMatch(/BACKLOG[^]*\+\d+ more/)
+  // Folded by the height fit, a grouped card counts its items, not its group headings.
+  expect(text).toMatch(/- PROJECTS[^\n]*\n│ \+5 more/)
+  for (const l of out) expect([...l].length).toBeLessThanOrEqual(60)
+  expect(offList(text)).toEqual([])
+  print('pane-quota-crowded-60', out)
+})

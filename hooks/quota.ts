@@ -87,11 +87,16 @@ export const quotaFromRun = (ran: CommandRun): Pick<QuotaView, 'external' | 'err
   return typeof parsed === 'string' ? { error: parsed } : { external: parsed, error: null }
 }
 
-/** A 10-cell gauge: filled cells rounded to the nearest tenth, clamped to the gauge. */
+/**
+ * A 10-cell gauge: filled cells rounded to the nearest tenth, clamped to the gauge. Filled cells are
+ * small squares and the track a dim middle dot: both stay clear of the cell edges, so two gauges on
+ * neighbouring rows never merge into one block, and no shading pattern turns to noise in a terminal.
+ */
 export const GAUGE_CELLS = 10
+export const GAUGE = { filled: '■', empty: '·' } as const
 export const gauge = (percent: number): { filled: string; empty: string } => {
   const n = Math.min(GAUGE_CELLS, Math.max(0, Math.round(percent / 10)))
-  return { filled: '█'.repeat(n), empty: '░'.repeat(GAUGE_CELLS - n) }
+  return { filled: GAUGE.filled.repeat(n), empty: GAUGE.empty.repeat(GAUGE_CELLS - n) }
 }
 
 const DAY = 24 * 60 * 60_000
