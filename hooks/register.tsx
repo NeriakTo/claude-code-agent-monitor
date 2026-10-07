@@ -37,6 +37,7 @@ import type { Line } from './view'
 const PANE = 'agent-monitor'
 const TICK_MS = 30_000
 const PANE_REFRESH_MS = 60_000
+const QUOTA_REFRESH_MS = 60_000
 const COMMAND_TIMEOUT_MS = 20_000
 
 const pendingA = atom({ plugin: 'agent-monitor', key: 'pending' } as const, [] as Pending[])
@@ -146,6 +147,37 @@ const readCustom = async ($: $, card: Config['customCards'][number], now: number
   }
 }
 
+// Each card owns its start time and lock; abandoned reads cannot overwrite newer data.
+const customReads = new Map<string, { startedAt: number; isRunning: boolean }>()
+const refreshCustom = async ($: $, cfg: Config, card: Config['customCards'][number]): Promise<void> => {
+  const now = await $.clock.now()
+  const previous = customReads.get(card.id)
+  const seconds = cfg.customCardRefresh.get(card.id)
+  if (previous !== undefined) {
+    if (previous.isRunning && now - previous.startedAt < REFRESH_STALE_MS) return
+    if (seconds !== undefined && now - previous.startedAt < seconds * 1000 - 1000) return
+  }
+  const token = { startedAt: now, isRunning: true }
+  customReads.set(card.id, token)
+  try {
+    const view = await readCustom($, card, now)
+    if (customReads.get(card.id) === token) {
+      await update($, customA, list => list.map(one => one.id === card.id ? view : one))
+      if (cfg.statusLine) await pushStatus($, cfg)
+    }
+  } finally {
+    token.isRunning = false
+  }
+}
+
+const onCustomTimer = async ($: $, cfg: Config, card: Config['customCards'][number]): Promise<void> => {
+  try {
+    if (await isPaneOpen($)) await refreshCustom($, cfg, card)
+  } catch (err) {
+    logError($, 'custom timer', err)
+  }
+}
+
 const hasQuota = async ($: $, cfg: Config): Promise<boolean> => cfg.quotaArgv.length > 0 || (await read($, quotaA)).claude.length > 0
 
 /** The card ids drawn now (QUOTA appears once Claude reports its windows). */
@@ -236,8 +268,7 @@ const readStatusSources = async ($: $, cfg: Config): Promise<void> => {
   if (typeof percent === 'number') await update($, contextA, c => (c.percent === null ? { percent, isAlerted: percent >= cfg.contextWarn } : c))
   const card = cfg.customCards.find(one => one.id === cfg.statusLineSubinfo)
   if (card === undefined || (await isPaneOpen($))) return // the pane's own refresh reads it then
-  const view = await readCustom($, card, await $.clock.now())
-  await update($, customA, list => list.map(one => (one.id === card.id ? view : one)))
+  await refreshCustom($, cfg, card)
 }
 
 /** Pins the status line, or clears it when it is off or knows nothing yet. */
@@ -294,8 +325,7 @@ const refreshPane = async ($: $, cfg: Config, isOpening = false): Promise<void> 
       await update($, dispatchA, () => view)
     }
     for (const card of cfg.customCards) {
-      const view = await readCustom($, card, now)
-      await update($, customA, list => list.map(one => (one.id === card.id ? view : one)))
+      if (isOpening || !cfg.customCardRefresh.has(card.id)) await refreshCustom($, cfg, card)
     }
     await (isOpening ? refreshQuota($, cfg) : readClaudeQuota($))
     if (cfg.statusLine && !isOpening) await pushStatus($, cfg) // the cards it read may feed the Subinfo
@@ -327,6 +357,7 @@ const onPaneTimer = async ($: $, cfg: Config): Promise<void> => {
 
 /** The pane options both views lay the cards out with: what the person set, by command or button. */
 const paneOptions = async ($: $, cfg: Config): Promise<PaneOptions> => ({
+  customCardRefresh: cfg.customCardRefresh,
   customMaxItems: cfg.customCardMaxItems,
   rows: await read($, rowsA),
   hidden: await read($, hiddenA),
@@ -544,7 +575,11 @@ export const register: Register = (on, options) => {
       $.clock.every(TICK_MS, () => void onTick($, cfg))
       $.clock.every(PANE_REFRESH_MS, () => void onPaneTimer($, cfg))
       // The quota feeds the band too, so it is read whether the pane is open or not.
-      $.clock.every(PANE_REFRESH_MS, () => void refreshQuota($, cfg))
+      $.clock.every(QUOTA_REFRESH_MS, () => void refreshQuota($, cfg))
+      for (const card of cfg.customCards) {
+        const seconds = cfg.customCardRefresh.get(card.id)
+        if (seconds !== undefined) $.clock.every(seconds * 1000, () => void onCustomTimer($, cfg, card))
+      }
       // Claude's own windows are read before the first draw; the command runs in the background.
       await readClaudeQuota($)
       if (cfg.statusLine) await readStatusSources($, cfg)

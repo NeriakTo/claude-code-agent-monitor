@@ -46,6 +46,7 @@ export type PaneDoc = {
  * the card order and placement, and the pane's mode. All but the first three are optional.
  */
 export type PaneOptions = {
+  customCardRefresh?: ReadonlyMap<string, number>
   customMaxItems: number
   rows: Readonly<Record<string, number>>
   hidden: readonly string[]
@@ -358,7 +359,7 @@ const itemLine = (i: CustomItem, inner: number): Line =>
 const ITEM_COUNT = new WeakMap<Line, number>()
 const counted = (line: Line, n: number): Line => (ITEM_COUNT.set(line, n), line)
 
-const groupedLines = (items: readonly CustomItem[], inner: number, maxItems: number): Line[] => {
+const groupedLines = (items: readonly CustomItem[], inner: number, maxItems: number, decorations: Model['custom'][number]['groups']): Line[] => {
   const chosen = new Set(visibleFirst(items, maxItems).slice(0, maxItems))
   const groups = [...new Set(items.map(i => i.group ?? ''))]
   const lines: Line[] = []
@@ -366,8 +367,15 @@ const groupedLines = (items: readonly CustomItem[], inner: number, maxItems: num
     const all = items.filter(i => (i.group ?? '') === group)
     const shownItems = all.filter(i => chosen.has(i))
     if (shownItems.length === 0) continue
-    if (group !== '') lines.push(counted(spread([{ text: group, tone: 'muted' }], [{ text: String(all.length), tone: 'muted' }], inner), 0))
-    lines.push(...shownItems.map(i => itemLine(i, inner)))
+    const decoration = group !== '' && decorations !== undefined && Object.hasOwn(decorations, group) ? decorations[group] : undefined
+    if (group !== '') {
+      const heading = decoration === undefined
+        ? spread([{ text: group, tone: 'muted' }], [{ text: String(all.length), tone: 'muted' }], inner)
+        : timed(decoration.mark === undefined ? { text: ' ', tone: 'plain' } : customMark(decoration.mark), group,
+            { text: decoration.right ?? String(all.length), tone: decoration.mark === 'failed' ? 'critical' : 'muted' }, inner)
+      lines.push(counted(heading, 0))
+    }
+    lines.push(...shownItems.map(i => decoration === undefined ? itemLine(i, inner) : [{ text: '  ', tone: 'plain' as Tone }, ...itemLine(i, inner - 2)]))
   }
   const rest = items.length - chosen.size
   return rest > 0 ? [...lines, counted(moreLine(rest), rest)] : lines
@@ -386,7 +394,7 @@ const customCard = (m: Model, view: Model['custom'][number], inner: number, maxI
         : view.items.length === 0
           ? [fitLine(muted(view.empty), inner)]
           : isGrouped
-            ? groupedLines(view.items, inner, maxItems)
+            ? groupedLines(view.items, inner, maxItems, view.groups)
             : visibleFirst(view.items, maxItems).map(i => itemLine(i, inner))
   return {
     id: view.id,
@@ -399,7 +407,10 @@ const customCard = (m: Model, view: Model['custom'][number], inner: number, maxI
             ...(failed > 0 ? [SEP, { text: `${failed} failed`, tone: 'critical' as Tone, bold: true }] : []),
           ]
         : badgeOf(view.items.length, failed, waiting ? 'warn' : 'muted'),
-    summary: view.error !== null || loading || view.summary === '' ? (lines[0] ?? []) : fitLine([{ text: view.summary, tone: 'plain' }], inner),
+    summary: view.error !== null || loading || view.summary === ''
+      ? (isGrouped && view.error === null && !loading && view.groups !== undefined
+          ? (groupedLines(view.items, inner, maxItems, undefined)[0] ?? []) : (lines[0] ?? []))
+      : fitLine([{ text: view.summary, tone: 'plain' }], inner),
     lines,
     // A grouped card already applied the cap and drew its own +N more row.
     ...(isGrouped && view.error === null && !loading ? {} : { maxLines: maxItems }),
@@ -534,6 +545,11 @@ export const paneDoc = (m: Model, bodyColumns: number, timeZone: string, opts: P
   const isWide = bodyColumns >= WIDE_ARRANGE_COLUMNS
   const selected = visible.some(card => card.id === opts.selected) ? opts.selected : visible[0]?.id
   const updated = footer(m, timeZone)
+  const intervals = m.custom.filter(c => opts.customCardRefresh?.has(c.id)).map(c => ` · ${c.id} ${opts.customCardRefresh?.get(c.id)}s`).join('')
+  const footerRoom = hidden.length === 0 ? width - 2 : footWidth - displayWidth(` · ${hidden.length} hidden`) - 5
+  if (intervals !== '' && updated.reduce((n, run) => n + displayWidth(run.text), 0) + displayWidth(intervals) <= footerRoom) {
+    updated.push({ text: intervals, tone: 'muted' })
+  }
   return {
     all,
     head: headLines(m, inner, timeZone, isArranging, !isWide),

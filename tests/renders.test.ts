@@ -26,6 +26,7 @@ export const sampleQuota = (now: number): string =>
 export const SAMPLE_PROJECTS = JSON.stringify({
   summary: '5 open · 1 on you',
   badge: '5 open · 1 on you',
+  groups: { Alpha: { mark: 'warn', right: 'review' } },
   items: [
     { mark: 'warn', text: '#301 monitor arrange mode', right: 'you', group: 'Alpha' },
     { mark: 'idle', text: '#208 parser second pass', right: 'me', group: 'Alpha' },

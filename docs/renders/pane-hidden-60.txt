@@ -18,10 +18,10 @@
 ╰──────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────╮
 │ - PROJECTS                             5 open · 1 on you │
-│ Alpha                                                  3 │
-│ ● #301 monitor arrange mode                          you │
-│ · #208 parser second pass                             me │
-│ · #298 release outline                               ext │
+│ ● Alpha                                           review │
+│   ● #301 monitor arrange mode                        you │
+│   · #208 parser second pass                           me │
+│   · #298 release outline                             ext │
 │ Beta                                                   2 │
 │ · #150 nightly report cleanup                         me │
 │ · #151 export settings page                           me │

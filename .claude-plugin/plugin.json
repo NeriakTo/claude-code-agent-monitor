@@ -1,6 +1,6 @@
 {
   "name": "agent-monitor",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A side pane (and a band above the prompt) tracking channel messages waiting for a reply, running and recently ended tool calls and subagents, rate-limit quota, external dispatches, custom cards from your own commands, and the session itself; cards can be reordered, moved to the band or hidden without commands.",
   "author": {
     "name": "NeriakTo"
@@ -78,7 +78,7 @@
     "customCards": {
       "type": "string",
       "title": "Custom cards",
-      "description": "Extra cards as TITLE=command pairs separated by ;; (the command runs without a shell, read-only, 10 s timeout). It prints one JSON object: {\"summary\": \"one line\", \"badge\": \"optional title text in place of the item count\", \"items\": [{\"mark\": \"running|stalled|done|failed|idle|waiting|warn\", \"text\": \"...\", \"right\": \"...\", \"group\": \"optional heading\"}], \"empty\": \"text when there are no items\"}. Items that name a group are listed under one gray heading per group. Empty adds no cards.",
+      "description": "Extra cards as TITLE=command pairs separated by ;; (the command runs without a shell, read-only, 10 s timeout). It prints one JSON object: {\"summary\": \"one line\", \"badge\": \"optional title text in place of the item count\", \"items\": [{\"mark\": \"running|stalled|done|failed|idle|waiting|warn\", \"text\": \"...\", \"right\": \"...\", \"group\": \"optional heading\"}], \"empty\": \"text when there are no items\"}. Items that name a group are listed under one gray heading per group. Empty adds no cards. Optional groups maps group names to {mark, right} decorations; marks use the item mark set, right is limited to 12 characters, and children of decorated groups are indented.",
       "default": ""
     },
     "openOnStart": {
@@ -138,7 +138,7 @@
     "statusLine": {
       "type": "boolean",
       "title": "Status line",
-      "description": "Pin the mod's own one-line status under the prompt: the State parts on the left, then │ and the Subinfo card's summary on the right. Off by default.",
+      "description": "Pin the mod's own one-line status under the prompt: the State parts on the left, then \u2502 and the Subinfo card's summary on the right. Off by default.",
       "default": false
     },
     "statusLineState": {
@@ -150,8 +150,14 @@
     "statusLineSubinfo": {
       "type": "string",
       "title": "Status line: Subinfo",
-      "description": "The id of the card whose summary the status line shows on the right, as TITLE count · summary (e.g. schedule, a custom card; or running, dispatches). While the pane is closed, a custom card named here is still read every 60 s. Empty shows none.",
+      "description": "The id of the card whose summary the status line shows on the right, as TITLE count \u00b7 summary (e.g. schedule, a custom card; or running, dispatches). While the pane is closed, a custom card named here is still read every 60 s. Empty shows none.",
       "default": "schedule"
+    },
+    "customCardRefresh": {
+      "type": "string",
+      "title": "Custom card refresh",
+      "description": "Per-card refresh intervals as card-id=seconds pairs separated by commas (e.g. board=10, builds=30). Card ids use the same rules as collapsedCards. Seconds are clamped to 10 through 3600; malformed entries are ignored. Unlisted cards refresh every 60 seconds.",
+      "default": ""
     }
   }
 }

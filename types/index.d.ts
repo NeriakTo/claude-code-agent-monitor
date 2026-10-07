@@ -56,6 +56,7 @@ export type CustomView = {
   badge: string
   /** `group`: optional heading the item is listed under; items without one are not grouped. */
   items: { mark: CustomMark; text: string; right: string; group?: string }[]
+  groups?: Record<string, { mark?: CustomMark; right?: string }>
   empty: string
   error: string | null
   fetchedAt: number | null

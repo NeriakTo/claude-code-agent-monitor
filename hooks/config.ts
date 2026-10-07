@@ -14,6 +14,7 @@ export type Config = {
   runtimeNames: ReadonlyMap<string, string>
   timeZone: string
   customCards: readonly { id: string; title: string; argv: readonly string[] }[]
+  customCardRefresh: ReadonlyMap<string, number>
   openOnStart: boolean
   wakePattern: RegExp | null
   collapsedCards: ReadonlySet<string>
@@ -61,6 +62,19 @@ export const parseCustomCards = (raw: string): { id: string; title: string; argv
       return { id: cardId(title), title, argv: at > 0 ? splitArgv(part.slice(at + 1)) : [] }
     })
     .filter(card => card.title !== '' && card.id !== '' && card.argv.length > 0)
+
+/** Per-card seconds; invalid entries are ignored and valid values clamped. */
+export const parseCustomCardRefresh = (raw: string): Map<string, number> => {
+  const out = new Map<string, number>()
+  for (const part of raw.split(',')) {
+    const match = /^\s*([^=]+?)\s*=\s*(-?\d+(?:\.\d+)?)\s*$/.exec(part)
+    if (match === null) continue
+    const id = cardId(match[1] ?? '')
+    const seconds = Number(match[2])
+    if (id !== '' && Number.isFinite(seconds)) out.set(id, Math.min(3600, Math.max(10, seconds)))
+  }
+  return out
+}
 
 export type RawOptions = Readonly<Record<string, string | number | boolean | readonly string[]>>
 
@@ -141,6 +155,7 @@ export const parseConfig = (options: RawOptions | undefined): Config => {
     runtimeNames: parsePairs(str(o['runtimeNames'])),
     timeZone: str(o['timeZone']),
     customCards: parseCustomCards(str(o['customCards'])),
+    customCardRefresh: parseCustomCardRefresh(str(o['customCardRefresh'])),
     openOnStart: o['openOnStart'] === true,
     wakePattern: toPattern(str(o['wakePattern'])),
     collapsedCards: new Set(
