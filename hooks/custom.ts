@@ -23,10 +23,11 @@ export const parseCustomOutput = (stdout: string): Pick<CustomView, 'summary' | 
   const groups: NonNullable<CustomView['groups']> = Object.create(null)
   if (isRecord(raw['groups'])) {
     for (const [name, decoration] of Object.entries(raw['groups'])) {
-      if (!isRecord(decoration)) continue
+      const group = text(name, 40)
+      if (group === '' || !isRecord(decoration)) continue
       const mark = MARKS.includes(decoration['mark'] as CustomMark) ? decoration['mark'] as CustomMark : undefined
       const right = typeof decoration['right'] === 'string' ? [...decoration['right'].replace(/\s+/g, ' ').trim()].slice(0, 12).join('') : undefined
-      if (mark !== undefined || right !== undefined) groups[name] = { ...(mark === undefined ? {} : { mark }), ...(right === undefined ? {} : { right }) }
+      if (mark !== undefined || right !== undefined) groups[group] = { ...(mark === undefined ? {} : { mark }), ...(right === undefined ? {} : { right }) }
     }
   }
   return {

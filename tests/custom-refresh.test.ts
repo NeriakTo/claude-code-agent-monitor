@@ -118,6 +118,56 @@ test('decorated headings never count toward max items or height-folded more coun
 
 const TIMERS = { options: { customCards: 'BOARD=board-tool;;BUILDS=builds-tool;;OTHER=other-tool', customCardRefresh: 'board=10, builds=30', dispatchCommand: 'dispatch-tool', quotaCommand: 'quota-tool', timeZone: 'UTC' } }
 
+test('group keys normalize whitespace and length like item groups, and empty keys are ignored', async () => {
+  const long = 'Long '.repeat(12)
+  const parsed = parseCustomOutput(JSON.stringify({
+    items: [{ text: 'one', group: 'Alpha' }, { text: 'two', group: 'Beta Gamma' }, { text: 'three', group: long }],
+    groups: { 'Alpha ': { mark: 'failed' }, '  Beta\t  Gamma  ': { right: 'ready' }, [long]: { mark: 'done' }, ' \t ': { mark: 'warn' } },
+  }))
+  expect(typeof parsed).toBe('object')
+  if (typeof parsed === 'string') return
+  expect(Object.keys(parsed.groups ?? {})).toEqual(parsed.items.map(item => item.group))
+  expect(parsed.groups?.['Alpha']).toEqual({ mark: 'failed' })
+  expect(parsed.groups?.['Beta Gamma']).toEqual({ right: 'ready' })
+  expect(parsed.groups?.[parsed.items[2]?.group ?? '']).toEqual({ mark: 'done' })
+})
+
+test('default card reruns on the pane timer 59.99 seconds after its previous read', CARD, async ($, on) => {
+  const w = world(on, () => ok('{"items":[]}'))
+  await start($)
+  await w.clock.advance(10)
+  await toggle($)
+  expect(w.runs.length).toBe(1)
+  await w.clock.advance(59_990)
+  expect(w.runs.length).toBe(2)
+})
+
+test('dispatch settle refresh rereads default cards after five seconds', { options: { ...CARD.options, dispatchCommandPattern: 'agentctl run' } }, async ($, on) => {
+  const w = world(on, () => ok('{"items":[]}'))
+  on('tool.call', () => ({ result: 'ok' }))
+  await start($)
+  await toggle($)
+  await $.tool.call({ tool: 'Bash', command: 'agentctl run --runtime alpha-cli' })
+  await w.clock.advance(4_999)
+  expect(w.runs.length).toBe(2)
+  await w.clock.advance(1)
+  expect(w.runs.length).toBe(3)
+})
+
+test('configured ten-second card skips at eight seconds and runs at nine and a half', { options: { customCards: 'BOARD=board-tool', customCardRefresh: 'board=10' } }, async ($, on) => {
+  const w = world(on, () => ok('{"items":[]}'))
+  await start($)
+  await toggle($)
+  await w.clock.advance(8_000)
+  await toggle($)
+  await toggle($)
+  expect(w.runs.length).toBe(1)
+  await w.clock.advance(1_500)
+  await toggle($)
+  await toggle($)
+  expect(w.runs.length).toBe(2)
+})
+
 test('card timers run only their card; default cards, dispatch and quota keep 60 seconds; pane closed stops card timers', TIMERS, async ($, on) => {
   const w = world(on, argv => ok(argv[0] === 'quota-tool' ? '{"rows":[]}' : argv[0] === 'dispatch-tool' ? '' : '{"items":[]}'))
   const counts = () => ['board-tool', 'builds-tool', 'other-tool', 'dispatch-tool', 'quota-tool'].map(name => w.runs.filter(argv => argv[0] === name).length)

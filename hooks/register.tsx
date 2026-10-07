@@ -149,13 +149,13 @@ const readCustom = async ($: $, card: Config['customCards'][number], now: number
 
 // Each card owns its start time and lock; abandoned reads cannot overwrite newer data.
 const customReads = new Map<string, { startedAt: number; isRunning: boolean }>()
-const refreshCustom = async ($: $, cfg: Config, card: Config['customCards'][number], isOpening = false): Promise<void> => {
+const refreshCustom = async ($: $, cfg: Config, card: Config['customCards'][number]): Promise<void> => {
   const now = await $.clock.now()
   const previous = customReads.get(card.id)
-  const interval = (cfg.customCardRefresh.get(card.id) ?? 60) * 1000
+  const seconds = cfg.customCardRefresh.get(card.id)
   if (previous !== undefined) {
     if (previous.isRunning && now - previous.startedAt < REFRESH_STALE_MS) return
-    if (!(isOpening && !cfg.customCardRefresh.has(card.id)) && now - previous.startedAt < interval) return
+    if (seconds !== undefined && now - previous.startedAt < seconds * 1000 - 1000) return
   }
   const token = { startedAt: now, isRunning: true }
   customReads.set(card.id, token)
@@ -325,7 +325,7 @@ const refreshPane = async ($: $, cfg: Config, isOpening = false): Promise<void> 
       await update($, dispatchA, () => view)
     }
     for (const card of cfg.customCards) {
-      if (isOpening || !cfg.customCardRefresh.has(card.id)) await refreshCustom($, cfg, card, isOpening)
+      if (isOpening || !cfg.customCardRefresh.has(card.id)) await refreshCustom($, cfg, card)
     }
     await (isOpening ? refreshQuota($, cfg) : readClaudeQuota($))
     if (cfg.statusLine && !isOpening) await pushStatus($, cfg) // the cards it read may feed the Subinfo
