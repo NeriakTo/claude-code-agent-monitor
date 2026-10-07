@@ -94,6 +94,9 @@ export type RecentRun = {
 /** Where a card is shown: in the pane, as a segment of the band. Hidden cards are listed in `hidden`. */
 export type Placement = 'pane' | 'band'
 
+/** The status line's facts not in the model: the main model's name, and the permission mode once a hook event carried it. */
+export type StatusInfo = { model: string | null; permissionMode: string | null }
+
 /** What the SESSION card shows. */
 export type SessionInfo = {
   startedAt: number | null
@@ -135,6 +138,7 @@ declare module 'claude-code' {
       selected: string | null
       /** Whether the footer lists the hidden cards, each with its own Show button. */
       revealHidden: boolean
+      status: StatusInfo
     }
   }
 }

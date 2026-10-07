@@ -25,7 +25,24 @@ export type Config = {
   quotaCritical: number
   /** How many ended runs the RUNNING card lists under recent. */
   recentRows: number
+  /** Whether the mod pins its own status line under the prompt. */
+  statusLine: boolean
+  /** What the status line's left side shows, in order: model, context, quota, mode. */
+  statusLineState: readonly StatePart[]
+  /** The card whose summary the status line's right side shows; '' for none. */
+  statusLineSubinfo: string
 }
+
+export const STATE_PARTS = ['model', 'context', 'quota', 'mode'] as const
+export type StatePart = (typeof STATE_PARTS)[number]
+
+const stateParts = (v: unknown): StatePart[] =>
+  typeof v !== 'string'
+    ? [...STATE_PARTS]
+    : v
+        .split(/[,\s]+/)
+        .map(p => p.trim().toLowerCase())
+        .filter((p): p is StatePart => (STATE_PARTS as readonly string[]).includes(p))
 
 /** A card's id: its title in lower case, runs of other characters as one dash. */
 export const cardId = (title: string): string =>
@@ -138,6 +155,9 @@ export const parseConfig = (options: RawOptions | undefined): Config => {
     quotaWarn,
     quotaCritical: Math.max(quotaWarn, num(o['quotaCriticalPercent'], 90, 1, 100)),
     recentRows: Math.round(num(o['recentRows'], 5, 0, 30)),
+    statusLine: o['statusLine'] === true,
+    statusLineState: stateParts(o['statusLineState']),
+    statusLineSubinfo: cardId(typeof o['statusLineSubinfo'] === 'string' ? o['statusLineSubinfo'] : 'schedule'),
   }
 }
 

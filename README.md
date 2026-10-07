@@ -9,6 +9,7 @@ It is a plugin of function hooks with two views: a one-line **band** above the p
 - [Install](#install)
 - [Configuration](#configuration)
 - [The cards](#the-cards)
+- [The status line](#the-status-line)
 - [Arranging cards](#arranging-cards)
 - [The `/monitor` command](#the-monitor-command)
 - [Quota JSON contract](#quota-json-contract)
@@ -138,6 +139,9 @@ Options are the plugin's `userConfig` fields. Each one appears as a row in Claud
 | `quotaWarnPercent` | `70` | A quota window at or above this turns yellow and gets `!`. Clamped to 1 to 100. |
 | `quotaCriticalPercent` | `90` | A quota window at or above this turns red and gets `!!`; the band adds its reset time. Never below `quotaWarnPercent`. |
 | `recentRows` | `5` | How many ended runs `RUNNING` lists under `recent`. Clamped to 0 to 30. |
+| `statusLine` | `false` | Pin the mod's own status line under the prompt (see [The status line](#the-status-line)). |
+| `statusLineState` | `"model,context,quota,mode"` | The parts on the status line's left side, in order: `model`, `context`, `quota`, `mode`. Empty shows none. |
+| `statusLineSubinfo` | `"schedule"` | The id of the card whose summary the status line shows on the right. Empty shows none. |
 
 Numbers outside their range are clamped rather than rejected. A regular expression that does not compile is matched as plain text instead, so a typo never stops the mod from loading.
 
@@ -209,6 +213,25 @@ Both views take their marks and colors from one table, so they always agree.
 | `!` / `!!` | a quota past its warning / critical line | yellow / red |
 | `■·` | a quota gauge: used / left | used neutral, yellow or red past a threshold; track dim; all dim when stale |
 | `↑ ↓` | move a card up or down (arrange mode) | |
+
+## The status line
+
+With `statusLine` on, the mod also pins one line of plain text under the prompt (Claude Code's `$.ui.status`, one line per plugin). It is meant to stand in for an external status line command:
+
+```text
+Opus 5.5 · ctx 58% left · quota week 61% · bypass permissions │ SCHEDULE 3 · next 12:30 nightly-report-run · 1 failed
+```
+
+- **State**, on the left, the parts `statusLineState` names, joined by `·`:
+  - `model`: the main model, as `/model` shows it.
+  - `context`: how much of the context window is left (100 minus the fill Claude Code reports), with `!` past `contextWarnPercent` and `!!` past `contextCriticalPercent`.
+  - `quota`: the tightest quota window, the one the band and `QUOTA` show, with `!` and `!!` past the quota lines.
+  - `mode`: the permission mode. Claude Code hands it to mods only on classic hook events, so it is read at each prompt, tool call and stop: after a change (shift+tab) it shows at the next one. Until an event has carried it the part is left out rather than guessed; `default` is not shown.
+- **Subinfo**, after `│`, the card `statusLineSubinfo` names, as `TITLE count · summary` (its collapsed summary, so a schedule card's next run and failures). While the pane is closed, a custom card named here is still read every 60 seconds so the line stays current; no other card's command runs.
+- **Why `│` and not right alignment.** `$.ui.status` takes plain text and is shown beside Claude Code's own notices; the terminal width reaches a mod only inside `ui.render`, not when it sets the status, so the line cannot be padded to push the Subinfo to the right edge. A divider is used instead.
+- It is plain text: no colors, so every warning carries `!` or `!!`. A part with nothing known yet is left out; with nothing at all, the line is cleared. Turning `statusLine` off clears it at the next load.
+- It updates when context or quota moves (`session.measure`), on the 60-second refresh, when the pane's refresh reads new card data, and when a hook event carries a new permission mode.
+- It is off by default; turning it on changes nothing else (the band and the pane stay as they are).
 
 ## Arranging cards
 
@@ -377,6 +400,7 @@ The mod hooks these events. Apart from `/monitor` and its own two drawings, ever
 | `session.compact` | Counts compactions of the main conversation (precomputed and skipped ones do not count). |
 | `session.measure` | Reads context usage for the restart warning, with one toast each time the warning line is crossed, and Claude's rate-limit windows when they moved. |
 | `ui.focus` | Notes which card's arrange button the focus ring is on, so that card takes the `u`/`d`/`b`/`h` keys. |
+| `classic.UserPromptSubmit`, `classic.PostToolUse`, `classic.Stop` | Only with `statusLine` on: reads the permission mode these events carry (main conversation only) for the status line. |
 | `command.run` | Answers `/monitor` and its subcommands. |
 | `ui.close` | Redraws the band when the pane closes, so it returns to its full form. |
 | `ui.render` | Draws the band (`AbovePrompt`) and the pane (`Pane`). |

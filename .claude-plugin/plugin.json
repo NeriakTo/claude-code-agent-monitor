@@ -134,6 +134,24 @@
       "title": "Recent runs",
       "description": "How many ended Bash calls and subagents (each run of at least 10 s) the RUNNING card lists under recent. Kept across reloads.",
       "default": 5
+    },
+    "statusLine": {
+      "type": "boolean",
+      "title": "Status line",
+      "description": "Pin the mod's own one-line status under the prompt: the State parts on the left, then │ and the Subinfo card's summary on the right. Off by default.",
+      "default": false
+    },
+    "statusLineState": {
+      "type": "string",
+      "title": "Status line: State",
+      "description": "Comma-separated parts for the status line's left side, in this order: model (the main model), context (context left, ! and !! past the context lines), quota (the tightest quota window), mode (the permission mode, once a prompt, tool call or stop has carried it; default is not shown). Empty shows none.",
+      "default": "model,context,quota,mode"
+    },
+    "statusLineSubinfo": {
+      "type": "string",
+      "title": "Status line: Subinfo",
+      "description": "The id of the card whose summary the status line shows on the right, as TITLE count · summary (e.g. schedule, a custom card; or running, dispatches). While the pane is closed, a custom card named here is still read every 60 s. Empty shows none.",
+      "default": "schedule"
     }
   }
 }

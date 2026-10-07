@@ -2,6 +2,7 @@
 // Neither computes a figure or a threshold: both read the Model, and both take their status
 // symbols and colors from statusMark/levelMark below, so the two always agree.
 import { cut, displayWidth, duration, truncateWidth } from './logic'
+import { resetText } from './quota'
 import type { Level, Model, QuotaLine, Status } from './model'
 
 /**
@@ -152,6 +153,19 @@ export type BandExtras = {
   resetLabel?: (row: QuotaLine) => string
 }
 
+/** The band's extras from the person's arrangement: QUOTA hidden or on the band, the cards placed there, reset times. */
+export const bandExtras = (
+  m: Model,
+  opts: { hidden: readonly string[]; placement?: Readonly<Record<string, string>> },
+  band: readonly { id: string; title: string; summary: Line }[],
+  timeZone: string,
+): BandExtras => ({
+  isQuotaHidden: opts.hidden.includes('quota'),
+  isQuotaOnBand: opts.placement?.['quota'] === 'band',
+  cards: band.filter(card => card.id !== 'quota'),
+  resetLabel: row => resetText(row.resetsAt, m.now, timeZone),
+})
+
 const quotaSegment = (m: Model, extras: BandExtras): Segment | null => {
   const top = m.quota.tightest
   if (top === null || extras.isQuotaHidden === true) return null
@@ -266,4 +280,49 @@ export const bandLine = (segments: readonly Segment[], width: number): Line => {
   for (const key of ['context', 'now', 'quota'] as const) if (!fits()) drop(key)
   while (kept.length > 1 && !fits()) kept.pop()
   return fitLine(join(kept), width)
+}
+
+// ---------- the status line ($.ui.status: one line of plain text) ----------
+
+/** Permission modes as the status line names them; `default` is not shown, as Claude Code does not. */
+const MODE_NAMES: Readonly<Record<string, string>> = {
+  acceptEdits: 'accept edits',
+  bypassPermissions: 'bypass permissions',
+  plan: 'plan mode',
+  auto: 'auto mode',
+  dontAsk: "don't ask",
+}
+
+/** Between the State (left) and the Subinfo (right): the line has no width to pad to. */
+export const STATUS_DIVIDER = ' │ '
+
+const plainText = (line: Line): string => line.map(run => run.text).join('').trim()
+
+/**
+ * The status line: the State parts asked for, then, after STATUS_DIVIDER, the Subinfo card as
+ * `TITLE count · summary`. Plain text, so a past-threshold figure carries `!` or `!!`. A part with
+ * nothing known yet is left out, never guessed; undefined when nothing at all is known.
+ */
+export const statusLineText = (
+  m: Model,
+  parts: readonly ('model' | 'context' | 'quota' | 'mode')[],
+  info: { model: string | null; permissionMode: string | null },
+  sub: { title: string; badge: Line; summary: Line } | null,
+): string | undefined => {
+  const flag = (level: Level): string => (level === 'error' ? ' !!' : level === 'warning' ? ' !' : '')
+  const c = m.context
+  const top = m.quota.tightest
+  const mode = info.permissionMode === null ? '' : info.permissionMode === 'default' ? '' : (MODE_NAMES[info.permissionMode] ?? info.permissionMode)
+  const text: Record<(typeof parts)[number], string> = {
+    model: info.model === null ? '' : cut(info.model, 24),
+    context: c === null ? '' : `ctx ${Math.max(0, 100 - c.percent)}% left${flag(c.level)}`,
+    quota: top === null ? '' : `quota ${shortQuotaName(top.name)} ${percentText(top)}${flag(top.level)}`,
+    mode,
+  }
+  const left = parts.map(p => text[p]).filter(t => t !== '').join(' · ')
+  const count = plainText(sub?.badge.slice(0, 1) ?? [])
+  const summary = sub === null ? '' : plainText(sub.summary)
+  const right = sub === null ? '' : [`${sub.title}${count === '' ? '' : ` ${count}`}`, summary].filter(t => t !== '').join(' · ')
+  if (left === '' && right === '') return undefined
+  return left === '' ? right : right === '' ? left : `${left}${STATUS_DIVIDER}${right}`
 }

@@ -4,14 +4,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { Action, AgentRun, ContextMark, CustomView, DispatchView, Pending, Placement, QuotaView, RecentRun, SessionInfo } from '../types'
+import type { Action, AgentRun, ContextMark, CustomView, DispatchView, Pending, Placement, QuotaView, RecentRun, SessionInfo, StatusInfo } from '../types'
 import { parseConfig, resolveCards } from './config'
 import type { Config } from './config'
 import { dispatchArgv, dispatchFromRun, oneLine } from './dispatch'
 import {
   addPending,
   appendChannelText,
-  channelLabel,
   clearByReply,
   contextTransition,
   dueAlerts,
@@ -21,16 +20,18 @@ import {
   mergeAgentStatus,
   parseChannelMessages,
   replyTarget,
+  waitingToast,
 } from './logic'
 import type { ChannelMessage } from './logic'
 import { buildModel } from './model'
-import { cardIds, cardOfKey, movedOrder, storedIds, storedPlacement } from './arrange'
+import type { ModelInput } from './model'
+import { cardIds, cardOfKey, monitorHint, movedOrder, parseMonitorArgs, rowsAfter, storedIds, storedPlacement } from './arrange'
 import { customFromRun, emptyCustom } from './custom'
 import { RECENT_MIN_MS, RECORDED_TOOLS, addRecent, endedAgents, storedRecent } from './recent'
 import { arrangedOrder, cardInner, cardTitle, layoutPane, paneDoc } from './pane'
 import type { PaneOptions } from './pane'
-import { claudeRows, quotaFromRun, resetText } from './quota'
-import { TOGGLE, bandLine, bandSegments, textProps } from './view'
+import { claudeRows, quotaFromRun } from './quota'
+import { TOGGLE, bandExtras, bandLine, bandSegments, statusLineText, textProps } from './view'
 import type { Line } from './view'
 
 const PANE = 'agent-monitor'
@@ -67,6 +68,7 @@ const placementA = atom({ plugin: 'agent-monitor', key: 'placement' } as const, 
 const arrangingA = atom({ plugin: 'agent-monitor', key: 'arranging' } as const, false)
 const selectedA = atom({ plugin: 'agent-monitor', key: 'selected' } as const, null as string | null)
 const revealA = atom({ plugin: 'agent-monitor', key: 'revealHidden' } as const, false)
+const statusA = atom({ plugin: 'agent-monitor', key: 'status' } as const, { model: null, permissionMode: null } as StatusInfo)
 const STORE_RECENT = 'recent'
 const STORE_ORDER = 'order'
 const STORE_PLACEMENT = 'placement'
@@ -112,12 +114,7 @@ const onTick = async ($: $, cfg: Config): Promise<void> => {
       due = result.due
       return result.pending
     })
-    const minutes = Math.round(cfg.waitingAlertMs / 60_000)
-    for (const p of due) {
-      $.ui.toast(`Inbox: a message has waited ${minutes}m without a reply (${channelLabel(cfg, p.server, p.chatId)})`, {
-        timeoutMs: 10_000,
-      })
-    }
+    for (const p of due) $.ui.toast(waitingToast(cfg, p), { timeoutMs: 10_000 })
   } catch (err) {
     logError($, 'tick', err)
   }
@@ -175,13 +172,11 @@ const arrangeCards = async ($: $, cfg: Config, verb: string, which: string, valu
     await saveHidden($, list => (verb === 'hide' ? [...new Set([...list, ...target])] : list.filter(id => !target.includes(id))))
     return `${verb === 'hide' ? 'Hidden' : 'Shown'}: ${target.join(', ')}.`
   }
-  const n = Number(value)
-  if (value !== 'default' && !(Number.isInteger(n) && n >= 1 && n <= 30)) return 'Rows takes a whole number from 1 to 30, or default.'
-  const merged = { ...(await read($, rowsA)), ...Object.fromEntries(target.map(id => [id, n])) }
-  const next = Object.fromEntries(Object.entries(merged).filter(([id]) => !(value === 'default' && target.includes(id))))
-  await update($, rowsA, () => next)
-  await $.store.set(STORE_ROWS, next)
-  return value === 'default' ? `Rows back to default: ${target.join(', ')}.` : `Rows set to ${n}: ${target.join(', ')}.`
+  const rows = rowsAfter(await read($, rowsA), target, value)
+  if ('error' in rows) return rows.error
+  await update($, rowsA, () => rows.next)
+  await $.store.set(STORE_ROWS, rows.next)
+  return rows.text
 }
 
 // ---------- quota ----------
@@ -216,18 +211,53 @@ const refreshQuota = async ($: $, cfg: Config): Promise<void> => {
   try {
     await readClaudeQuota($)
     const now = await $.clock.now()
-    if (cfg.quotaArgv.length === 0) return
-    if (quotaSince !== null && now - quotaSince < REFRESH_STALE_MS) return
-    quotaSince = now
-    try {
-      const read = await readQuota($, cfg)
-      await update($, quotaA, q => ({ ...q, ...read, fetchedAt: now }))
-    } finally {
-      if (quotaSince === now) quotaSince = null
+    if (cfg.quotaArgv.length > 0 && (quotaSince === null || now - quotaSince >= REFRESH_STALE_MS)) {
+      quotaSince = now
+      try {
+        const read = await readQuota($, cfg)
+        await update($, quotaA, q => ({ ...q, ...read, fetchedAt: now }))
+      } finally {
+        if (quotaSince === now) quotaSince = null
+      }
     }
+    if (cfg.statusLine) await readStatusSources($, cfg).then(() => pushStatus($, cfg))
   } catch (err) {
     logError($, 'quota', err)
   }
+}
+
+// ---------- the status line ($.ui.status) ----------
+
+/** The model's name and, until a measurement comes, context use; the Subinfo card's command while the pane is closed. */
+const readStatusSources = async ($: $, cfg: Config): Promise<void> => {
+  const model = await $.session.model()
+  if ((await read($, statusA)).model !== model) await update($, statusA, s => ({ ...s, model }))
+  const { percent } = (await $.session.usage()).context
+  if (typeof percent === 'number') await update($, contextA, c => (c.percent === null ? { percent, isAlerted: percent >= cfg.contextWarn } : c))
+  const card = cfg.customCards.find(one => one.id === cfg.statusLineSubinfo)
+  if (card === undefined || (await isPaneOpen($))) return // the pane's own refresh reads it then
+  const view = await readCustom($, card, await $.clock.now())
+  await update($, customA, list => list.map(one => (one.id === card.id ? view : one)))
+}
+
+/** Pins the status line, or clears it when it is off or knows nothing yet. */
+const pushStatus = async ($: $, cfg: Config): Promise<void> => {
+  try {
+    if (!cfg.statusLine) return $.ui.status(undefined)
+    const model = await readModel($, cfg)
+    const sub = paneDoc(model, 200, cfg.timeZone, await paneOptions($, cfg)).all.find(c => c.id === cfg.statusLineSubinfo) ?? null
+    $.ui.status(statusLineText(model, cfg.statusLineState, await read($, statusA), sub))
+  } catch (err) {
+    logError($, 'status line', err)
+  }
+}
+
+/** The permission mode a classic hook event carries (main conversation only); unknown until one does. */
+const notePermissionMode = async ($: $, cfg: Config, e: { agent_id?: string; permission_mode?: string }): Promise<void> => {
+  const mode = e.permission_mode
+  if (e.agent_id !== undefined || typeof mode !== 'string' || (await read($, statusA)).permissionMode === mode) return
+  await update($, statusA, s => ({ ...s, permissionMode: mode }))
+  await pushStatus($, cfg)
 }
 
 // ---------- recently ended runs ----------
@@ -268,6 +298,7 @@ const refreshPane = async ($: $, cfg: Config, isOpening = false): Promise<void> 
       await update($, customA, list => list.map(one => (one.id === card.id ? view : one)))
     }
     await (isOpening ? refreshQuota($, cfg) : readClaudeQuota($))
+    if (cfg.statusLine && !isOpening) await pushStatus($, cfg) // the cards it read may feed the Subinfo
     try {
       const infos = await $.agent.list()
       await update($, agentsA, runs => mergeAgentStatus(runs, infos))
@@ -457,7 +488,7 @@ const noteReply = async ($: $, cfg: Config, tool: string, input: Record<string, 
 const readModel = async ($: $, cfg: Config) => {
   await read($, tickA)
   const now = await $.clock.now()
-  const input = {
+  const input: ModelInput = {
     pending: await read($, pendingA),
     lastReplyAt: await read($, lastReplyA),
     actions: await read($, actionsA),
@@ -504,9 +535,7 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name: 'monitor',
         description: 'Toggle the agent monitor pane; expand or collapse its cards',
-        argumentHint: `[expand|collapse <card|all> · hide <card> · show <card|all> · rows <card> <1-30|default>] cards: ${cardIds(cfg).join(', ')}${
-          cfg.quotaArgv.length > 0 ? '' : ' (quota once Claude reports its limits)'
-        }`,
+        argumentHint: monitorHint(cfg),
       })
     } catch (err) {
       logError($, 'command.register', err)
@@ -518,6 +547,8 @@ export const register: Register = (on, options) => {
       $.clock.every(PANE_REFRESH_MS, () => void refreshQuota($, cfg))
       // Claude's own windows are read before the first draw; the command runs in the background.
       await readClaudeQuota($)
+      if (cfg.statusLine) await readStatusSources($, cfg)
+      await pushStatus($, cfg) // off: clears a line a previous load may have left
       void refreshQuota($, cfg)
       if (cfg.openOnStart && !(await isPaneOpen($))) {
         await $.ui.open({ id: PANE, title: 'Agent monitor' })
@@ -588,6 +619,13 @@ export const register: Register = (on, options) => {
     return ran
   })
 
+  // The permission mode reaches mods only on classic hook events: kept from each prompt, tool call and stop.
+  if (cfg.statusLine) {
+    on('classic.UserPromptSubmit', async ($, e, next) => (await notePermissionMode($, cfg, e).catch(err => logError($, 'mode', err)), next(e)))
+    on('classic.PostToolUse', async ($, e, next) => (await notePermissionMode($, cfg, e).catch(err => logError($, 'mode', err)), next(e)))
+    on('classic.Stop', async ($, e, next) => (await notePermissionMode($, cfg, e).catch(err => logError($, 'mode', err)), next(e)))
+  }
+
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     try {
@@ -618,6 +656,7 @@ export const register: Register = (on, options) => {
         const rows = claudeRows(e.rateLimits, now)
         await update($, quotaA, q => ({ ...q, claude: rows }))
       }
+      if (cfg.statusLine) await pushStatus($, cfg)
     } catch (err) {
       logError($, 'session.measure', err)
     }
@@ -626,10 +665,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'monitor' }, async ($, e) => {
     try {
-      // The card name may hold spaces; for rows the number is the last word.
-      const [verb = '', ...rest] = e.args.trim().split(/\s+/)
-      const value = verb === 'rows' && rest.length > 1 ? rest.pop() : undefined
-      const which = rest.join(' ') || 'all'
+      const { verb, which, value } = parseMonitorArgs(e.args)
       if (verb === 'hide' || verb === 'show' || verb === 'rows') return { text: await arrangeCards($, cfg, verb, which, value) }
       if (verb === 'expand' || verb === 'collapse') {
         const match = resolveCards(await liveCardIds($, cfg), which)
@@ -679,24 +715,15 @@ export const register: Register = (on, options) => {
       const model = await readModel($, cfg)
       const opts = await paneOptions($, cfg)
       const doc = paneDoc(model, e.props.bodyColumns, cfg.timeZone, { ...opts, isArranging: false })
-      const segments = bandSegments(model, await isPaneOpen($), {
-        isQuotaHidden: opts.hidden.includes('quota'),
-        isQuotaOnBand: opts.placement?.['quota'] === 'band',
-        cards: doc.band.filter(card => card.id !== 'quota'),
-        resetLabel: row => resetText(row.resetsAt, model.now, cfg.timeZone),
-      })
+      const segments = bandSegments(model, await isPaneOpen($), bandExtras(model, opts, doc.band, cfg.timeZone))
       if (segments.length === 0) return next(e)
       const line = bandLine(segments, e.props.bodyColumns)
       const { Box, Text } = $.ui.resolve(e)
       return (
         <Box flexDirection="row">
-          {line.map(run =>
-            run.button === undefined ? (
-              <Text {...textProps(run)}>{run.text}</Text>
-            ) : (
-              <Text {...textProps(run)}>{run.button.label}</Text>
-            ),
-          )}
+          {line.map(run => (
+            <Text {...textProps(run)}>{run.text}</Text>
+          ))}
         </Box>
       )
     } catch (err) {

@@ -44,6 +44,10 @@ export type World = {
   sessionStartedAt: number
   /** What $.session.usage() reports as Claude's rate-limit windows. */
   rateLimits: { kind: string; percentUsed: number; resetsAt?: string }[]
+  /** What $.session.model() reports. */
+  model: string
+  /** Every $.ui.status call, in order (undefined clears the line). */
+  status: (string | undefined)[]
   /** The argumentHint /monitor registered with. */
   hint: string
   open: Set<string>
@@ -57,7 +61,7 @@ export const world = (
   agents: { id: string; description: string; type: string; status: 'running' | 'completed' }[] = [],
 ): World => {
   const clock = mock.clock(on, { now: T0 })
-  const w: World = { clock, toasts: [], logs: [], runs: [], timeouts: [], store: new Map(), sessionStartedAt: T0, rateLimits: [], hint: '', open: new Set(), opens: [] }
+  const w: World = { clock, toasts: [], logs: [], runs: [], timeouts: [], store: new Map(), sessionStartedAt: T0, rateLimits: [], model: 'Model One', status: [], hint: '', open: new Set(), opens: [] }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
   on('store.keys', () => ({ value: [...w.store.keys()] }))
@@ -67,6 +71,13 @@ export const world = (
   })
   on('session.usage', () => ({ value: { startedAt: w.sessionStartedAt, context: { window: 200_000 }, rateLimits: w.rateLimits } }))
   on('ui.focus', () => ({}))
+  on('session.model', () => ({ value: w.model }))
+  // Classic hook events end in the settings hooks; none are configured here.
+  on('classic.UserPromptSubmit', () => ({}))
+  on('ui.status', ($, e) => {
+    w.status.push(e.text)
+    return { value: undefined }
+  })
   on('store.set', ($, e) => {
     w.store.set(e.key, e.value)
     return { value: undefined }

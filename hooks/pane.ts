@@ -37,6 +37,8 @@ export type PaneDoc = {
   footer: Line[]
   band: { id: string; title: string; summary: Line }[]
   arrange: Line[] | null
+  /** Every card this configuration draws, hidden or placed anywhere (the status line's Subinfo reads one). */
+  all: Card[]
 }
 
 /**
@@ -524,6 +526,7 @@ export const paneDoc = (m: Model, bodyColumns: number, timeZone: string, opts: P
   const selected = visible.some(card => card.id === opts.selected) ? opts.selected : visible[0]?.id
   const updated = footer(m, timeZone)
   return {
+    all,
     head: headLines(m, inner, timeZone, isArranging, !isWide),
     cards: isArranging ? [] : visible.filter(card => placeOf(card.id) === 'pane'),
     band: visible.filter(card => placeOf(card.id) === 'band').map(card => ({ id: card.id, title: card.title, summary: card.summary })),
