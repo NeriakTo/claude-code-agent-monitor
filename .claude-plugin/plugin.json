@@ -78,7 +78,7 @@
     "customCards": {
       "type": "string",
       "title": "Custom cards",
-      "description": "Extra cards as TITLE=command pairs separated by ;; (the command runs without a shell, read-only, 10 s timeout). It prints one JSON object: {\"summary\": \"one line\", \"items\": [{\"mark\": \"running|stalled|done|failed|idle|waiting|warn\", \"text\": \"...\", \"right\": \"...\", \"group\": \"optional heading\"}], \"empty\": \"text when there are no items\"}. Items that name a group are listed under one gray heading per group. Empty adds no cards.",
+      "description": "Extra cards as TITLE=command pairs separated by ;; (the command runs without a shell, read-only, 10 s timeout). It prints one JSON object: {\"summary\": \"one line\", \"badge\": \"optional title text in place of the item count\", \"items\": [{\"mark\": \"running|stalled|done|failed|idle|waiting|warn\", \"text\": \"...\", \"right\": \"...\", \"group\": \"optional heading\"}], \"empty\": \"text when there are no items\"}. Items that name a group are listed under one gray heading per group. Empty adds no cards.",
       "default": ""
     },
     "openOnStart": {

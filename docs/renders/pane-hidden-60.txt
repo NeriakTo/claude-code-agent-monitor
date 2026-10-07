@@ -27,4 +27,6 @@
 │ · #151 export settings page                           me │
 ╰──────────────────────────────────────────────────────────╯
  hidden: inbox, session
- updated 12:47 · refresh 60s · 2 hidden                Show
+ updated 12:47 · refresh 60s · 2 hidden               Close
+   INBOX                                               Show
+   SESSION                                             Show

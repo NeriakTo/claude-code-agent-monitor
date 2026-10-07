@@ -52,6 +52,8 @@ export type CustomView = {
   id: string
   title: string
   summary: string
+  /** Optional text for the title's right side in place of the item count ('' when not given). */
+  badge: string
   /** `group`: optional heading the item is listed under; items without one are not grouped. */
   items: { mark: CustomMark; text: string; right: string; group?: string }[]
   empty: string

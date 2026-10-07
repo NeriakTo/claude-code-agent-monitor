@@ -73,7 +73,7 @@ Type `/monitor` to open or close the pane. This sample is plain text printed by 
 │ ✗ agent screenshot run                       12m · 12:12 │
 ╰──────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────╮
-│ - PROJECTS                                             5 │
+│ - PROJECTS                             5 open · 1 on you │
 │ Alpha                                                  3 │
 │ ● #301 monitor arrange mode                          you │
 │ · #208 parser second pass                             me │
@@ -188,7 +188,7 @@ Below `recent`, the last `recentRows` Bash calls and subagents that ran at least
 
 **DISPATCHES.** Work you hand to other agents or tools outside this session, read from `dispatchCommand`. The badge reads `N running · M stalled`. Running dispatches come first (runtime, short id, start time, age, summary); dispatches stalled within the last hour are listed one by one, and older stalled ones fold into one `◌ N stalled since HH:MM` line; below `recent`, the last 3 ended dispatches (change with `/monitor rows dispatches <n>`). A command that fails shows a one-line reason in the card.
 
-**Custom cards.** One card per `customCards` entry, filled from your own command's JSON. The badge is the item count, plus `N failed` in red when any item failed. See [Custom cards](#custom-cards).
+**Custom cards.** One card per `customCards` entry, filled from your own command's JSON. The badge is the command's `badge` text when it gives one, else the item count, plus `N failed` in red when any item failed. See [Custom cards](#custom-cards).
 
 **SESSION.** When the session started and how long it has been up, the last wake (time and the first 30 characters of the prompt that woke it), and how many times the conversation was compacted and when. Collapsed, it reads `up 8m · woke never · compacted 0`. These figures survive a hot reload.
 
@@ -218,6 +218,9 @@ Press `Arrange` in the header to rearrange the pane without typing commands; pre
 ╭──────────────────────────────────────────────────────────╮
 │ AGENT MONITOR                                Done  12:47 │
 │ Arrange: move, place or hide cards. Changes are kept.    │
+│ Each change is saved at once; Done only leaves.          │
+│ Pick a card: Tab or arrow keys, or click. Keys u d b h.  │
+│ ↑ ↓ move · B/P band or pane · H hide                     │
 ╰──────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────╮
 │  QUOTA                                    d: ↓ b: B h: H │
@@ -233,6 +236,8 @@ Press `Arrange` in the header to rearrange the pane without typing commands; pre
 | `↑` / `↓` | Move the card one place up or down among the cards not hidden. The first card has no `↑` and the last no `↓`. |
 | `Band` / `Pane` | Show the card as a segment of the band (its title and one-line summary) instead of in the pane, or bring it back. Cards on the band are marked `(band)` here and stay on the band even with the pane open. |
 | `Hide` | Take the card off the pane and the band. It is listed in the footer, where `Show` brings it back. Hiding `QUOTA` also removes the quota from the band. |
+
+Under the header, arrange mode says how it works: each change is saved the moment you press a button (`Done` only leaves arrange mode, it does not save), and how to pick a card. Below 80 columns it adds a legend for the shortened buttons: `↑ ↓ move · B/P band or pane · H hide`. More samples: [the hidden list shown](docs/renders/pane-hidden-60.txt), [a card moved from the band back to the pane](docs/renders/pane-arrange-band-to-pane-60.txt), and [the focus on another card](docs/renders/pane-arrange-focus-60.txt).
 
 The order, the placement and the hidden cards are kept in the mod's store, so the next session starts the way you left it; `/monitor hide` and `/monitor show` work on the same hidden list. Below 80 columns the buttons shrink to `↑ ↓ B H`; a long card title is cut before any button is.
 
@@ -287,6 +292,7 @@ Claude's own windows need no command: the mod reads them from Claude Code (`$.se
 ```json
 {
   "summary": "one line, shown when the card is collapsed",
+  "badge": "optional, shown on the title row in place of the item count",
   "items": [
     { "mark": "waiting", "text": "approve the weekly release notes", "right": "4d" },
     { "mark": "failed", "text": "disk-usage-check-daily", "right": "last 05:30" },
@@ -298,6 +304,7 @@ Claude's own windows need no command: the mod reads them from Claude Code (`$.se
 
 - `mark` is one of `running`, `stalled`, `done`, `failed`, `idle`, `waiting`, `warn`; anything else shows as `idle`.
 - `text` and `summary` are cut to 80 characters, `right` to 12, `empty` to 60. At most 30 items are read.
+- `badge` is optional: short text (cut to 30 characters) shown on the title row instead of the item count, for example `14 open · 3 on you`. It is yellow when an item is `waiting` or `warn`, like the count; failed items still add `N failed` in red. Without it the title row shows the item count.
 - `group` is optional. When items name a group, the card draws a gray heading per group, in the order the groups first appear, with the group's item count on the right, and lists the group's items under it; items with no group come first, under no heading. Headings do not count against the item limit. Cards whose items name no group are drawn as before.
 - When a card shows fewer items than it has, `failed`, `warn` and `stalled` items are listed first; the rest keep the command's order.
 - Text is shown as given, in any language; the mod does not translate it.

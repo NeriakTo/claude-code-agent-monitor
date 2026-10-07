@@ -91,13 +91,27 @@ export const customMark = (mark: CustomMark): Run =>
   mark === 'waiting' ? { text: '·', tone: 'muted' } : mark === 'warn' ? { text: '●', tone: 'warn' } : statusMark(mark)
 
 /** The header card: title, the Arrange (or Done) button and clock, the overview, and the restart warning when there is one. */
-const headLines = (m: Model, inner: number, timeZone: string, isArranging: boolean): Line[] => {
+/**
+ * Arrange mode's help under the header: how changes are kept, how to pick a card, and, where the
+ * buttons are shrunk to letters, what the letters mean.
+ */
+export const ARRANGE_HELP = {
+  intro: 'Arrange: move, place or hide cards. Changes are kept.',
+  saving: 'Each change is saved at once; Done only leaves.',
+  picking: 'Pick a card: Tab or arrow keys, or click. Keys u d b h.',
+  legend: '↑ ↓ move · B/P band or pane · H hide',
+} as const
+
+const headLines = (m: Model, inner: number, timeZone: string, isArranging: boolean, isCompact = false): Line[] => {
   const title = spread(
     [{ text: 'AGENT MONITOR', tone: 'accent', bold: true }],
     [buttonRun('arrange', isArranging ? 'Done' : 'Arrange'), { text: '  ', tone: 'plain' }, { text: clockTime(m.now, timeZone), tone: 'muted' }],
     inner,
   )
-  if (isArranging) return [title, fitLine(muted('Arrange: move, place or hide cards. Changes are kept.'), inner)]
+  if (isArranging) {
+    const help = [ARRANGE_HELP.intro, ARRANGE_HELP.saving, ARRANGE_HELP.picking, ...(isCompact ? [ARRANGE_HELP.legend] : [])]
+    return [title, ...help.map(text => fitLine(muted(text), inner))]
+  }
   const runningAgents = m.subagents.filter(s => s.status === 'running').length
   const overview: Line = [
     { text: 'inbox ', tone: 'plain' },
@@ -355,7 +369,14 @@ const customCard = (m: Model, view: Model['custom'][number], inner: number, maxI
   return {
     id: view.id,
     title: view.title,
-    badge: badgeOf(view.items.length, failed, waiting ? 'warn' : 'muted'),
+    // The command's own badge text when it gives one (e.g. `14 open · 3 on you`), else the item count.
+    badge:
+      view.badge !== '' && view.error === null
+        ? [
+            { text: view.badge, tone: waiting || view.items.some(i => i.mark === 'warn') ? 'warn' : 'muted', bold: true },
+            ...(failed > 0 ? [SEP, { text: `${failed} failed`, tone: 'critical' as Tone, bold: true }] : []),
+          ]
+        : badgeOf(view.items.length, failed, waiting ? 'warn' : 'muted'),
     summary: view.error !== null || loading || view.summary === '' ? (lines[0] ?? []) : fitLine([{ text: view.summary, tone: 'plain' }], inner),
     lines,
     // A grouped card already applied the cap and drew its own +N more row.
@@ -492,7 +513,7 @@ export const paneDoc = (m: Model, bodyColumns: number, timeZone: string, opts: P
   const selected = visible.some(card => card.id === opts.selected) ? opts.selected : visible[0]?.id
   const updated = footer(m, timeZone)
   return {
-    head: headLines(m, inner, timeZone, isArranging),
+    head: headLines(m, inner, timeZone, isArranging, !isWide),
     cards: isArranging ? [] : visible.filter(card => placeOf(card.id) === 'pane'),
     band: visible.filter(card => placeOf(card.id) === 'band').map(card => ({ id: card.id, title: card.title, summary: card.summary })),
     arrange: isArranging

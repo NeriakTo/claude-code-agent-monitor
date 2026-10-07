@@ -682,7 +682,8 @@ export const register: Register = (on, options) => {
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
     try {
-      if (e.id === PANE) await update($, tickA, () => Date.now())
+      const now = await $.clock.now()
+      if (e.id === PANE) await update($, tickA, () => now)
     } catch (err) {
       logError($, 'ui.close', err)
     }

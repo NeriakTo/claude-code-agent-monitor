@@ -1,0 +1,31 @@
+PROJECTS on the band (its button reads P):
+╭──────────────────────────────────────────────────────────╮
+│ AGENT MONITOR                                Done  12:47 │
+│ Arrange: move, place or hide cards. Changes are kept.    │
+│ Each change is saved at once; Done only leaves.          │
+│ Pick a card: Tab or arrow keys, or click. Keys u d b h.  │
+│ ↑ ↓ move · B/P band or pane · H hide                     │
+╰──────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────╮
+│  QUOTA                                             ↓ B H │
+│  RUNNING                                         ↑ ↓ B H │
+│  PROJECTS (band)                     u: ↑      b: P h: H │
+╰──────────────────────────────────────────────────────────╯
+ hidden: inbox, session
+ updated 12:47 · refresh 60s · 2 hidden                Show
+
+After pressing P, back in the pane (B again):
+╭──────────────────────────────────────────────────────────╮
+│ AGENT MONITOR                                Done  12:47 │
+│ Arrange: move, place or hide cards. Changes are kept.    │
+│ Each change is saved at once; Done only leaves.          │
+│ Pick a card: Tab or arrow keys, or click. Keys u d b h.  │
+│ ↑ ↓ move · B/P band or pane · H hide                     │
+╰──────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────╮
+│  QUOTA                                             ↓ B H │
+│  RUNNING                                         ↑ ↓ B H │
+│  PROJECTS                            u: ↑      b: B h: H │
+╰──────────────────────────────────────────────────────────╯
+ hidden: inbox, session
+ updated 12:47 · refresh 60s · 2 hidden                Show

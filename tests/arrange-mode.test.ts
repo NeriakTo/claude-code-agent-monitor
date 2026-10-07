@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
+import { ARRANGE_HELP } from '../hooks/pane'
 import { SYMBOLS } from '../hooks/view'
 import { MIN, T0, band, ok, pane, renderText, start, toggle, world } from './kit'
 
@@ -211,4 +212,35 @@ test('the arrange order covers QUOTA too, once Claude reports its windows', { op
   const out = (await draw($, 100)).join('\n')
   expect(out.indexOf('- INBOX')).toBeLessThan(out.indexOf('- QUOTA'))
   expect(w.store.get('order')).toEqual(['inbox', 'quota', 'running', 'session'])
+})
+
+test('arrange help: changes are saved at once and Done only leaves, how to pick a card, and at 60 columns what B, P and H mean', CARDS, async ($, on) => {
+  world(on, answer)
+  await start($)
+  await toggle($)
+  await pressIn($, 'arrange')
+  const narrow = (await draw($, 60)).join('\n')
+  for (const line of Object.values(ARRANGE_HELP)) expect(narrow).toContain(line)
+  expect(narrow).toContain('Each change is saved at once; Done only leaves.')
+  expect(narrow).toContain('Pick a card: Tab or arrow keys, or click. Keys u d b h.')
+  expect(narrow).toContain('↑ ↓ move · B/P band or pane · H hide')
+  const wide = await draw($, 100)
+  expect(wide.join('\n')).toContain(ARRANGE_HELP.saving)
+  expect(wide.join('\n')).toContain(ARRANGE_HELP.picking)
+  // At 100 columns the buttons spell themselves out, so there is no legend.
+  expect(wide.join('\n')).not.toContain(ARRANGE_HELP.legend)
+  for (const l of wide) expect([...l].length).toBeLessThanOrEqual(100)
+})
+
+test('a custom card that gives a badge shows it on its title row instead of the count, yellow when an item asks for you', CARDS, async ($, on) => {
+  const withBadge = JSON.stringify({ ...JSON.parse(GROUPED), badge: '7 open · 2 on you' })
+  world(on, argv => (argv[0] === 'projects-tool' ? ok(withBadge) : answer(argv)))
+  await start($)
+  await toggle($)
+  const text = (await draw($, 60)).join('\n')
+  expect(text).toMatch(/- PROJECTS\s+7 open · 2 on you │/)
+  expect(text).toMatch(/- A VERY LONG CUSTOM CARD TITLE~?[^│]*\s1 │/)
+  const ui = await $.ui.mount(pane(60, 200))
+  expect((await ui.find({ type: 'Text', text: '7 open · 2 on you' }))?.props).toMatchObject({ color: 'yellow', bold: true })
+  await ui.unmount()
 })

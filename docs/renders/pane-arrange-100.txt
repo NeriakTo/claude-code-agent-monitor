@@ -1,6 +1,8 @@
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ AGENT MONITOR                                                                        Done  12:47 │
 │ Arrange: move, place or hide cards. Changes are kept.                                            │
+│ Each change is saved at once; Done only leaves.                                                  │
+│ Pick a card: Tab or arrow keys, or click. Keys u d b h.                                          │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
 │  QUOTA                                                                    d: ↓  b: Band  h: Hide │

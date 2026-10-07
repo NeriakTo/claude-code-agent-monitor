@@ -23,6 +23,7 @@ export const sampleQuota = (now: number): string =>
 
 export const SAMPLE_PROJECTS = JSON.stringify({
   summary: '5 open · 1 on you',
+  badge: '5 open · 1 on you',
   items: [
     { mark: 'warn', text: '#301 monitor arrange mode', right: 'you', group: 'Alpha' },
     { mark: 'idle', text: '#208 parser second pass', right: 'me', group: 'Alpha' },
@@ -114,6 +115,39 @@ test('renders: band and pane at 60 and 100 columns, normal and arrange mode', SA
   for (const [name, lines] of shots) {
     const columns = Number(name.split('-').pop())
     for (const l of lines) expect([...l].length, `${name}: ${l}`).toBeLessThanOrEqual(columns)
+    expect(offList(lines.join('\n')), name).toEqual([])
+    print(name, lines)
+  }
+  await done()
+})
+
+test('renders: the hidden list shown, a card moved from the band back to the pane, and the focus on another card', SAMPLE, async ($, on) => {
+  const { done } = await sampleSession($, on)
+  const shots: [string, string[]][] = []
+  await monitor($, '')
+  await monitor($, 'hide inbox')
+  await monitor($, 'hide session')
+  const ui = await $.ui.mount(pane(60, 200))
+  await ui.press({ key: 'reveal-hidden' })
+  shots.push(['pane-hidden-60', renderText(await ui.drawn(), 60)])
+  await ui.press({ key: 'reveal-hidden' })
+  await ui.press({ key: 'arrange' })
+  await ui.press({ key: 'place:projects' })
+  const onBand = renderText(await ui.drawn(), 60)
+  await ui.press({ key: 'place:projects' })
+  const backInPane = renderText(await ui.drawn(), 60)
+  shots.push(['pane-arrange-band-to-pane-60', ['PROJECTS on the band (its button reads P):', ...onBand, '', 'After pressing P, back in the pane (B again):', ...backInPane]])
+  await $.ui.focus({ component: 'Pane', requestId: 'agent-monitor', plugin: 'agent-monitor', element: 'hide:running', origin: { kind: 'person' } })
+  shots.push(['pane-arrange-focus-60', renderText(await ui.drawn(), 60)])
+  await ui.unmount()
+  const [hiddenShot, bandShot, focusShot] = shots.map(([, lines]) => lines.join('\n'))
+  expect(hiddenShot).toMatch(/2 hidden\s+Close\n {3}INBOX\s+Show\n {3}SESSION\s+Show$/)
+  expect(bandShot).toMatch(/PROJECTS \(band\)\s+u: ↑ {6}b: P h: H │/)
+  expect(bandShot).toMatch(/After pressing P[^]*│ {2}PROJECTS\s+u: ↑ {6}b: B h: H │/)
+  expect(focusShot).toMatch(/│ {2}RUNNING\s+u: ↑ d: ↓ b: B h: H │/)
+  expect(focusShot).toMatch(/│ {2}QUOTA\s+↓ B H │/)
+  for (const [name, lines] of shots) {
+    for (const l of lines) expect([...l].length, `${name}: ${l}`).toBeLessThanOrEqual(60)
     expect(offList(lines.join('\n')), name).toEqual([])
     print(name, lines)
   }
