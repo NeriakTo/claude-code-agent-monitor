@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="872.0" height="80.0" viewBox="0 0 872.0 80.0" role="img" aria-label="band above the prompt · 100 columns" xml:space="preserve">
+<title>band above the prompt · 100 columns</title>
+<rect x="0.5" y="0.5" width="871.0" height="79.0" rx="10" fill="#16181d"/>
+<path d="M0.5 28 V10.5 A10 10 0 0 1 10.5 0.5 H861.5 A10 10 0 0 1 871.5 10.5 V28 Z" fill="#1d2026"/>
+<line x1="0.5" y1="28.5" x2="871.5" y2="28.5" stroke="#2b2f36"/>
+<rect x="0.5" y="0.5" width="871.0" height="79.0" rx="10" fill="none" stroke="#2b2f36"/>
+<text x="16.0" y="18.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, &quot;Liberation Mono&quot;, monospace" font-size="12" fill="#7f8794">band above the prompt · 100 columns</text>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, &quot;Liberation Mono&quot;, monospace" font-size="14">
+<text x="24.4" y="59.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#e5c07b">●</text>
+<text x="41.2" y="59.0" textLength="42.0" lengthAdjust="spacingAndGlyphs" fill="#d7dae0" font-weight="600">INBOX</text>
+<text x="91.6" y="59.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#e5c07b" font-weight="600">1</text>
+<text x="116.8" y="59.0" textLength="109.2" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">discord #1112</text>
+<text x="234.4" y="59.0" textLength="16.8" lengthAdjust="spacingAndGlyphs" fill="#e5c07b">6m</text>
+<path d="M272.2 44.0V64.0" stroke="#7f8794" fill="none" data-col="30" data-row="0" data-text="│"/>
+<text x="293.2" y="59.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#e5c07b">●</text>
+<text x="310.0" y="59.0" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#d7dae0" font-weight="600">NOW</text>
+<text x="352.0" y="59.0" textLength="218.4" lengthAdjust="spacingAndGlyphs" fill="#d7dae0">agent review batch 2 fixes</text>
+<text x="578.8" y="59.0" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#e5c07b">35m</text>
+<path d="M625.0 44.0V64.0" stroke="#7f8794" fill="none" data-col="72" data-row="0" data-text="│"/>
+<text x="646.0" y="59.0" textLength="8.4" lengthAdjust="spacingAndGlyphs" fill="#d7dae0" font-weight="600">Q</text>
+<text x="662.8" y="59.0" textLength="25.2" lengthAdjust="spacingAndGlyphs" fill="#4ec98a">61%</text>
+<path d="M709.0 44.0V64.0" stroke="#7f8794" fill="none" data-col="82" data-row="0" data-text="│"/>
+<text x="730.0" y="59.0" textLength="100.8" lengthAdjust="spacingAndGlyphs" fill="#7f8794">no reply yet</text>
+</g>
+</svg>

@@ -136,37 +136,83 @@ export const ok = (stdout: string): ProcessRunResult => ({
   isStderrTruncated: false,
 })
 
-// ---------- plain-text rendering of a drawn tree ----------
+// ---------- rendering a drawn tree: styled runs per line, and plain text ----------
 
 type Node = { type: string; props: Record<string, unknown>; children: unknown[] }
 
 const isNode = (v: unknown): v is Node => typeof v === 'object' && v !== null && 'type' in v
 
-const textOf = (n: unknown): string =>
-  typeof n === 'string' ? n : isNode(n) ? n.children.map(textOf).join('') : ''
+/** The tone a drawn Text carries, read back from the props hooks/view.ts textProps gave it. */
+export type Tone = 'plain' | 'muted' | 'accent' | 'ok' | 'warn' | 'critical'
 
-const cells = (s: string): number => [...s].reduce((w, ch) => w + (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1), 0)
+/** One styled piece of a drawn line, as the terminal would color it. */
+export type Seg = { text: string; tone: Tone; bold: boolean }
 
-const padEnd = (s: string, w: number): string => s + ' '.repeat(Math.max(0, w - cells(s)))
+const COLOR_TONES: Record<string, Tone> = { cyan: 'accent', green: 'ok', yellow: 'warn', red: 'critical', gray: 'muted' }
 
-/** Draws a tree as the terminal would lay it out, borders and margins included, at `width` cells. */
-export const renderText = (n: unknown, width: number): string[] => {
-  if (!isNode(n)) return typeof n === 'string' ? [n] : []
-  if (n.type === 'Text') return [textOf(n)]
+const toneOf = (p: Record<string, unknown> = {}): Tone | undefined =>
+  typeof p['color'] === 'string' ? (COLOR_TONES[p['color']] ?? 'plain') : p['dimColor'] === true ? 'muted' : undefined
+
+const plain = (text: string, tone: Tone = 'plain'): Seg => ({ text, tone, bold: false })
+
+const segsOf = (n: unknown, style: Omit<Seg, 'text'>): Seg[] => {
+  if (typeof n === 'string') return n === '' ? [] : [{ text: n, ...style }]
+  if (!isNode(n)) return []
+  // A Text drawn with no style props carries none at all.
+  const props: Record<string, unknown> = n.props ?? {}
+  const own = { tone: toneOf(props) ?? style.tone, bold: props['bold'] === true || style.bold }
+  return n.children.flatMap(c => segsOf(c, own))
+}
+
+export const cells = (s: string): number => [...s].reduce((w, ch) => w + (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1), 0)
+
+const rowCells = (row: readonly Seg[]): number => row.reduce((w, s) => w + cells(s.text), 0)
+
+const trimRow = (row: readonly Seg[]): Seg[] => {
+  const out = [...row]
+  while (out.length > 0) {
+    const last = out[out.length - 1] as Seg
+    const text = last.text.trimEnd()
+    if (text !== '') {
+      out[out.length - 1] = { ...last, text }
+      break
+    }
+    out.pop()
+  }
+  return out
+}
+
+const spaces = (n: number): Seg[] => (n > 0 ? [plain(' '.repeat(n))] : [])
+
+/**
+ * Draws a tree as the terminal would lay it out, borders and margins included, at `width` cells,
+ * keeping each piece's tone and weight. A gray border is muted; padding is plain.
+ */
+export const renderRuns = (n: unknown, width: number): Seg[][] => {
+  if (!isNode(n)) return typeof n === 'string' ? [[plain(n)]] : []
+  if (n.type === 'Text') return [segsOf(n, { tone: 'plain', bold: false })]
   // A plain Button with a hotkey is drawn `h: Hide` by the terminal; without one, its label alone.
-  if (n.type === 'Button') return [`${typeof n.props['hotkey'] === 'string' ? `${n.props['hotkey']}: ` : ''}${String(n.props['label'] ?? '')}`]
+  if (n.type === 'Button') return [[plain(`${typeof n.props['hotkey'] === 'string' ? `${n.props['hotkey']}: ` : ''}${String(n.props['label'] ?? '')}`)]]
   const p = n.props
   const isColumn = p['flexDirection'] === 'column'
   const border = typeof p['borderStyle'] === 'string'
+  const borderTone = (typeof p['borderColor'] === 'string' ? COLOR_TONES[p['borderColor']] : undefined) ?? 'plain'
   const padX = typeof p['paddingX'] === 'number' ? p['paddingX'] : 0
   const inner = width - (border ? 2 : 0) - 2 * padX
-  let lines = isColumn ? n.children.flatMap(c => renderText(c, inner)) : [n.children.map(c => renderText(c, inner).join('')).join('')]
-  lines = lines.map(l => ' '.repeat(padX) + padEnd(l, inner) + ' '.repeat(padX))
+  let lines = isColumn ? n.children.flatMap(c => renderRuns(c, inner)) : [n.children.flatMap(c => renderRuns(c, inner).flat())]
+  lines = lines.map(l => [...spaces(padX), ...l, ...spaces(inner - rowCells(l)), ...spaces(padX)])
   if (border) {
-    lines = [`╭${'─'.repeat(width - 2)}╮`, ...lines.map(l => `│${l}│`), `╰${'─'.repeat(width - 2)}╯`]
+    lines = [
+      [plain(`╭${'─'.repeat(width - 2)}╮`, borderTone)],
+      ...lines.map(l => [plain('│', borderTone), ...l, plain('│', borderTone)]),
+      [plain(`╰${'─'.repeat(width - 2)}╯`, borderTone)],
+    ]
   }
   const top = typeof p['marginTop'] === 'number' ? p['marginTop'] : 0
-  return [...Array.from({ length: top }, () => ''), ...lines].map(l => l.trimEnd())
+  return [...Array.from({ length: top }, (): Seg[] => []), ...lines].map(trimRow)
 }
+
+/** Draws a tree as plain text: renderRuns with the styling dropped. */
+export const renderText = (n: unknown, width: number): string[] => renderRuns(n, width).map(row => row.map(s => s.text).join(''))
 
 export const CJK = /[\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/

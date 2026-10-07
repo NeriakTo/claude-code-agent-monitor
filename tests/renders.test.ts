@@ -1,11 +1,13 @@
-// Plain-text renders for review without loading the mod: each is printed between marker lines,
-// and scripts/write-renders.sh copies them to docs/renders/. Neutral sample data only.
+// Renders for review without loading the mod: each is printed between marker lines, as plain text
+// and, for the README's pictures, as SVG; scripts/write-renders.sh copies them to docs/renders/.
+// Neutral sample data only.
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import { SYMBOLS } from '../hooks/view'
-import { CHAT_A, MIN, T0, band, fromChannel, ok, pane, renderText, start, tag, world } from './kit'
-import type { World } from './kit'
+import { CHAT_A, MIN, T0, band, fromChannel, ok, pane, renderRuns, renderText, start, tag, world } from './kit'
+import type { Seg, World } from './kit'
+import { renderSvg, svgProblems } from './svg'
 
 /** The test runner prints console output; the hooks environment's typings do not declare it. */
 declare const console: { log: (text: string) => void }
@@ -86,16 +88,43 @@ const offList = (text: string): string[] => [...new Set([...text].filter(ch => c
 
 const print = (name: string, lines: readonly string[]): void => console.log(`\n----- render:${name} -----\n${lines.join('\n')}\n----- end:${name} -----`)
 
+const plainLines = (rows: readonly (readonly Seg[])[]): string[] => rows.map(row => row.map(s => s.text).join(''))
+
+/** The README's pictures: the sample name, and the title bar each one carries. */
+const SVG_TITLES: Record<string, string> = {
+  'band-100': 'band above the prompt · 100 columns',
+  'pane-quota-ctx-60': '/monitor pane · 60 columns',
+  'pane-arrange-60': '/monitor pane · arrange mode · 60 columns',
+}
+
+/** Checks one picture against its plain text, then prints it between svg marker lines. */
+const printSvg = (name: string, rows: readonly (readonly Seg[])[], again: readonly (readonly Seg[])[]): void => {
+  const columns = Number(name.split('-').pop())
+  const title = SVG_TITLES[name] ?? name
+  const svg = renderSvg(rows, columns, title)
+  expect(svgProblems(svg, plainLines(rows)), name).toEqual([])
+  // Mounted and drawn a second time from the same sample, the picture is the same to the byte.
+  expect(renderSvg(again, columns, title), name).toBe(svg)
+  console.log(`\n----- svg:${name} -----\n${svg}\n----- end-svg:${name} -----`)
+}
+
 const monitor = ($: Engine, args: string) =>
   $.command.run({ command: 'monitor', args, origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 80 } })
 
 test('renders: band and pane at 60 and 100 columns, normal and arrange mode', SAMPLE, async ($, on) => {
   const { done } = await sampleSession($, on)
   const shots: [string, string[]][] = []
+  const pictures: [string, Seg[][], Seg[][]][] = []
   for (const columns of [60, 100]) {
     const ui = await $.ui.mount(band(columns))
-    shots.push([`band-${columns}`, renderText(await ui.drawn(), columns)])
+    const rows = renderRuns(await ui.drawn(), columns)
+    shots.push([`band-${columns}`, plainLines(rows)])
     await ui.unmount()
+    if (columns === 100) {
+      const second = await $.ui.mount(band(columns))
+      pictures.push(['band-100', rows, renderRuns(await second.drawn(), columns)])
+      await second.unmount()
+    }
   }
   await monitor($, '')
   await monitor($, 'hide inbox')
@@ -108,9 +137,17 @@ test('renders: band and pane at 60 and 100 columns, normal and arrange mode', SA
   for (const columns of [60, 100]) {
     const ui = await $.ui.mount(pane(columns, 200))
     await ui.press({ key: 'arrange' })
-    shots.push([`pane-arrange-${columns}`, renderText(await ui.drawn(), columns)])
+    const rows = renderRuns(await ui.drawn(), columns)
+    shots.push([`pane-arrange-${columns}`, plainLines(rows)])
     await ui.press({ key: 'arrange' })
     await ui.unmount()
+    if (columns === 60) {
+      const second = await $.ui.mount(pane(columns, 200))
+      await second.press({ key: 'arrange' })
+      pictures.push(['pane-arrange-60', rows, renderRuns(await second.drawn(), columns)])
+      await second.press({ key: 'arrange' })
+      await second.unmount()
+    }
   }
   for (const [name, lines] of shots) {
     const columns = Number(name.split('-').pop())
@@ -118,6 +155,7 @@ test('renders: band and pane at 60 and 100 columns, normal and arrange mode', SA
     expect(offList(lines.join('\n')), name).toEqual([])
     print(name, lines)
   }
+  for (const [name, rows, again] of pictures) printSvg(name, rows, again)
   await done()
 })
 
@@ -191,14 +229,19 @@ test('renders: once a context reading comes, the QUOTA badge shows context use (
   await monitor($, 'hide session')
   for (const columns of [60, 100]) {
     const ui = await $.ui.mount(pane(columns, 200))
-    const lines = renderText(await ui.drawn(), columns)
+    const rows = renderRuns(await ui.drawn(), columns)
     await ui.unmount()
+    const second = await $.ui.mount(pane(columns, 200))
+    const again = renderRuns(await second.drawn(), columns)
+    await second.unmount()
+    const lines = plainLines(rows)
     const text = lines.join('\n')
     expect(text).toMatch(/- QUOTA\s+ctx 44% │/)
     expect(text).toMatch(/│ Claude week\s+■■■■■■····\s+61%/)
     for (const l of lines) expect([...l].length, `${columns}: ${l}`).toBeLessThanOrEqual(columns)
     expect(offList(text)).toEqual([])
     print(`pane-quota-ctx-${columns}`, lines)
+    if (columns === 60) printSvg('pane-quota-ctx-60', rows, again)
   }
   await done()
 })

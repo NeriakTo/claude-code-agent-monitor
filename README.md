@@ -29,6 +29,10 @@ It is a plugin of function hooks with two views: a one-line **band** above the p
 
 The band sits above the prompt in every session that loads the mod.
 
+<img src="docs/renders/band-100.svg" alt="The band at 100 columns with the pane closed: INBOX 1 with a channel message waiting 6 minutes, NOW with an agent running 35 minutes in yellow, the quota at 61% in green, and no reply yet in gray, separated by vertical bars" width="872">
+
+<details><summary>Plain-text sample</summary>
+
 ```text
 Pane closed:
  ● INBOX 3  discord #general 18m +1ch  │  ● NOW  Bash "build" 12m +1  │  ● restart soon  │  ● QUOTA week 61%  │  no reply yet
@@ -37,6 +41,8 @@ Pane open (only what is past a threshold, and cards you placed on the band):
 Nothing going on:
  · INBOX 0  │  · NOW idle  │  no reply yet
 ```
+
+</details>
 
 | Segment | Shows |
 | --- | --- |
@@ -53,7 +59,11 @@ When the line is too narrow: the quota first shrinks to `Q 61%`; then the last r
 
 ### The pane
 
-Type `/monitor` to open or close the pane. This sample is plain text printed by the test suite at 60 columns, with neutral sample data; `PROJECTS` is a custom card whose items name a `group`, and `INBOX` and `SESSION` are hidden. More samples, at 60 and 100 columns and in arrange mode, are in [`docs/renders/`](docs/renders/).
+Type `/monitor` to open or close the pane. This sample is drawn by the test suite at 60 columns, with neutral sample data; `PROJECTS` is a custom card whose items name a `group`, and `INBOX` and `SESSION` are hidden. More samples, at 60 and 100 columns and in arrange mode, are in [`docs/renders/`](docs/renders/).
+
+<img src="docs/renders/pane-quota-ctx-60.svg" alt="The pane at 60 columns: a header card reading AGENT MONITOR with the Arrange button and the time; a QUOTA card with context use at 44% and gauges for Claude's 5-hour and weekly windows and two other quota rows, the last one stale in gray; a RUNNING card with one agent running 35 minutes and two recent runs, one done and one failed; a PROJECTS custom card with items under the Alpha and Beta groups; and a footer listing the hidden cards" width="536">
+
+<details><summary>Plain-text sample</summary>
 
 ```text
 ╭──────────────────────────────────────────────────────────╮
@@ -87,6 +97,8 @@ Type `/monitor` to open or close the pane. This sample is plain text printed by 
  hidden: inbox, session
  updated 12:47 · refresh 60s · 2 hidden                Show
 ```
+
+</details>
 
 ## Requirements
 
@@ -238,6 +250,10 @@ Opus 5.5 · ctx 58% left · quota week 61% · bypass permissions │ SCHEDULE 3 
 
 Press `Arrange` in the header to rearrange the pane without typing commands; press `Done` to go back. While arranging, each card shows only its title row, with four buttons (a sample at 60 columns, where they shrink to `↑ ↓ B H`; `QUOTA`, the first card, holds the letter keys until the focus ring moves):
 
+<img src="docs/renders/pane-arrange-60.svg" alt="The pane in arrange mode at 60 columns: the header shows Done in place of Arrange and explains that each change is saved at once, how to pick a card and what the shortened buttons mean; below it each card shows only its title, QUOTA holding the letter keys d, b and h, RUNNING with up, down, Band and Hide, PROJECTS as the last card without down; the footer lists the hidden cards" width="536">
+
+<details><summary>Plain-text sample</summary>
+
 ```text
 ╭──────────────────────────────────────────────────────────╮
 │ AGENT MONITOR                                Done  12:47 │
@@ -254,6 +270,8 @@ Press `Arrange` in the header to rearrange the pane without typing commands; pre
  hidden: inbox, session
  updated 12:47 · refresh 60s · 2 hidden                Show
 ```
+
+</details>
 
 | Button | Effect |
 | --- | --- |
@@ -469,7 +487,7 @@ claude plugin test .                             # runs tests/*.test.ts against 
 npx -y -p typescript@5.9.3 tsc -p . --noEmit     # type check
 ```
 
-`claude plugin test` also prints sample panes at 48, 60 and 100 columns, which is the quickest way to see a layout change. `scripts/write-renders.sh` runs the suite and writes the band and pane samples (normal and arrange mode, 60 and 100 columns) to `docs/renders/`; run it after a layout change and commit the result.
+`claude plugin test` also prints sample panes at 48, 60 and 100 columns, which is the quickest way to see a layout change. `scripts/write-renders.sh` runs the suite and writes the band and pane samples (normal and arrange mode, 60 and 100 columns) to `docs/renders/`; run it after a layout change and commit the result. It also writes the SVG pictures this README shows (`band-100.svg`, `pane-quota-ctx-60.svg` and `pane-arrange-60.svg`), drawn from the same samples with each piece's own color, so they stay in step with the plain text.
 
 The type declarations the hooks import (`claude-code`, `claude-code/testing`) are written by Claude Code into `.claude-plugin/types/` the first time it loads the mod from a folder you own (for example with `claude --plugin-dir .`), and again after an update. That folder is not committed; load the mod once before running `tsc`. `tsconfig.json` already includes it.
 
@@ -495,7 +513,7 @@ hooks/recent.ts              which ended runs are kept, and background subagents
 hooks/logic.ts               channel, reply and subagent tracking
 types/index.d.ts             the mod's state contract
 tests/                       claude plugin test suites
-scripts/write-renders.sh     writes the plain-text samples to docs/renders/
+scripts/write-renders.sh     writes the plain-text and SVG samples to docs/renders/
 docs/renders/                band and pane samples at 60 and 100 columns
 ```
 
