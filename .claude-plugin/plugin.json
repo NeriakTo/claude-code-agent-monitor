@@ -57,6 +57,12 @@
       "description": "將目前對話的 context 已用百分比寫入本機 JSON 檔。留空時不寫檔。",
       "default": ""
     },
+    "contextSnapshotTmuxSession": {
+      "type": "string",
+      "title": "快照限定的 tmux 工作階段",
+      "description": "只允許指定 tmux 工作階段內的對話寫入或移除快照。留空時不檢查。",
+      "default": ""
+    },
     "dispatchCommand": {
       "type": "string",
       "title": "Dispatch event command",

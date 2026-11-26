@@ -1,6 +1,17 @@
-// Function hooks 透過引擎執行本機指令。路徑和 JSON 以獨立引數傳入。
+// Function hooks 透過引擎執行本機指令。路徑、JSON 和 tmux 工作階段名稱各自以引數傳入。
 export const SNAPSHOT_SCRIPT = `
 set -eu
+if [ -n "\${3:-}" ]; then
+  [ -n "\${TMUX:-}" ] || exit 0
+  command -v tmux >/dev/null 2>&1 || exit 0
+  if [ -n "\${TMUX_PANE:-}" ]; then
+    session=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null) || exit 0
+  else
+    session=$(tmux display-message -p '#S' 2>/dev/null) || exit 0
+  fi
+  [ "$session" = "$3" ] || exit 0
+fi
+
 case "$1" in
   /*) path=$1 ;;
   '~/'*) path="$HOME/\${1#'~/'}" ;;

@@ -37,6 +37,34 @@ test('快照路徑預設為空字串並可從選項讀取', {}, () => {
   expect(parseConfig({ contextSnapshotPath: 'board/context.json' })).toHaveProperty('contextSnapshotPath', 'board/context.json')
 })
 
+test('快照 tmux session 預設留空並可從選項讀取', {}, () => {
+  expect(parseConfig(undefined)).toHaveProperty('contextSnapshotTmuxSession', '')
+  expect(parseConfig({ contextSnapshotTmuxSession: 'agent-main' }))
+    .toHaveProperty('contextSnapshotTmuxSession', 'agent-main')
+  expect(parseConfig({ contextSnapshotTmuxSession: ' agent-main ' }))
+    .toHaveProperty('contextSnapshotTmuxSession', ' agent-main ')
+})
+
+test('啟動、壓縮與量測都將 tmux session 傳給快照腳本', {
+  options: { contextSnapshotPath: PATH, contextSnapshotTmuxSession: 'agent-main' },
+}, async ($, on) => {
+  const { w } = fixture(on)
+  w.sessionContext = context(26)
+  on('session.compact', (_, e) => ({ messages: e.messages, tokensAfter: 24_000 }))
+  const messages = [{ role: 'user' as const, text: '待壓縮訊息', toolUses: [] }]
+  await start($)
+  await w.clock.settle()
+  await $.session.compact({ trigger: 'auto', messages })
+  await w.clock.settle()
+  await measure($, 0, 0)
+  await w.clock.settle()
+  expect(w.runs.map(argv => argv.slice(4))).toEqual([
+    [PATH, JSON.stringify(snapshot(26)), 'agent-main'],
+    [PATH, JSON.stringify(snapshot(12)), 'agent-main'],
+    [PATH, '', 'agent-main'],
+  ])
+})
+
 test('未設定時不寫快照', {}, async ($, on) => {
   const w = world(on)
   let idReads = 0

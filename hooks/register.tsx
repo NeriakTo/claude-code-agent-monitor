@@ -110,24 +110,29 @@ const captureSnapshotMeasurement = async ($: $, context: ContextUsage | undefine
 }
 
 const writeContextSnapshot = async (
-  $: $, path: string, measurement: ReturnType<typeof captureSnapshotMeasurement>,
+  $: $, path: string, tmuxSession: string, measurement: ReturnType<typeof captureSnapshotMeasurement>,
 ): Promise<void> => {
   try {
     const fields = await measurement
     if (fields === undefined) return
     const payload = fields === null ? '' : JSON.stringify({ session_id: await $.session.id(), ...fields })
-    const result = await $.process.run(['/bin/sh', '-c', SNAPSHOT_SCRIPT, 'agent-monitor', path, payload], { timeoutMs: 5_000 })
+    const result = await $.process.run(
+      ['/bin/sh', '-c', SNAPSHOT_SCRIPT, 'agent-monitor', path, payload, tmuxSession],
+      { timeoutMs: 5_000 },
+    )
     if (result.exitCode !== 0) logError($, '警告：快照寫入失敗', result.stderr || `結束代碼 ${result.exitCode}`)
   } catch (err) {
     logError($, '警告：快照寫入失敗', err)
   }
 }
 
-const saveContextSnapshot = async ($: $, path: string, queue: SnapshotQueue, context: ContextUsage | undefined): Promise<void> => {
+const saveContextSnapshot = async (
+  $: $, path: string, tmuxSession: string, queue: SnapshotQueue, context: ContextUsage | undefined,
+): Promise<void> => {
   if (path === '') return
   // 排隊前擷取量測時間。正在寫入時，新量測只取代待寫的那一筆。
   const measurement = captureSnapshotMeasurement($, context)
-  queue.pending = () => writeContextSnapshot($, path, measurement)
+  queue.pending = () => writeContextSnapshot($, path, tmuxSession, measurement)
   if (queue.running) return
 
   queue.running = true
@@ -593,6 +598,7 @@ export const register: Register = (on, options) => {
   let warnSnapshotPath = cfg.contextSnapshotPath !== '' &&
     !cfg.contextSnapshotPath.startsWith('/') && !cfg.contextSnapshotPath.startsWith('~/')
   const contextSnapshotPath = warnSnapshotPath ? '' : cfg.contextSnapshotPath
+  const { contextSnapshotTmuxSession } = cfg
   const snapshotQueue: SnapshotQueue = { running: false }
 
   on('session.start', async ($, e, next) => {
@@ -642,7 +648,7 @@ export const register: Register = (on, options) => {
       }
       // Claude's own windows are read before the first draw; the command runs in the background.
       const context = await readClaudeQuota($)
-      void saveContextSnapshot($, contextSnapshotPath, snapshotQueue, context)
+      void saveContextSnapshot($, contextSnapshotPath, contextSnapshotTmuxSession, snapshotQueue, context)
       if (cfg.statusLine) await readStatusSources($, cfg)
       await pushStatus($, cfg) // off: clears a line a previous load may have left
       void refreshQuota($, cfg)
@@ -733,7 +739,7 @@ export const register: Register = (on, options) => {
           const usage = await $.session.usage().catch(() => undefined)
           const window = usage?.context.window ?? 0
           const percent = result.tokensAfter === undefined ? undefined : result.tokensAfter / window * 100
-          void saveContextSnapshot($, contextSnapshotPath, snapshotQueue, { window, percent })
+          void saveContextSnapshot($, contextSnapshotPath, contextSnapshotTmuxSession, snapshotQueue, { window, percent })
         }
       }
     } catch (err) {
@@ -744,7 +750,9 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     try {
-      if (e.changed.includes('context')) void saveContextSnapshot($, contextSnapshotPath, snapshotQueue, e.context)
+      if (e.changed.includes('context')) {
+        void saveContextSnapshot($, contextSnapshotPath, contextSnapshotTmuxSession, snapshotQueue, e.context)
+      }
       const percent = typeof e.context.percent === 'number' ? e.context.percent : null
       let shouldAlert = false
       await update($, contextA, prev => {
