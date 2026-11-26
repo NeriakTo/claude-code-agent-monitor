@@ -7,6 +7,11 @@ case "$1" in
   *) path="./$1" ;;
 esac
 
+if [ -L "$path" ]; then
+  printf '%s\\n' '快照路徑為符號連結' >&2
+  exit 1
+fi
+
 if [ -z "$2" ]; then
   rm -f "$path"
   exit 0
