@@ -37,6 +37,34 @@ test('快照路徑預設為空字串並可從選項讀取', {}, () => {
   expect(parseConfig({ contextSnapshotPath: 'board/context.json' })).toHaveProperty('contextSnapshotPath', 'board/context.json')
 })
 
+test('快照 tmux session 預設留空並可從選項讀取', {}, () => {
+  expect(parseConfig(undefined)).toHaveProperty('contextSnapshotTmuxSession', '')
+  expect(parseConfig({ contextSnapshotTmuxSession: 'claude-code-discord' }))
+    .toHaveProperty('contextSnapshotTmuxSession', 'claude-code-discord')
+  expect(parseConfig({ contextSnapshotTmuxSession: ' claude-code-discord ' }))
+    .toHaveProperty('contextSnapshotTmuxSession', ' claude-code-discord ')
+})
+
+test('啟動、壓縮與量測都將 tmux session 傳給快照腳本', {
+  options: { contextSnapshotPath: PATH, contextSnapshotTmuxSession: 'claude-code-discord' },
+}, async ($, on) => {
+  const { w } = fixture(on)
+  w.sessionContext = context(26)
+  on('session.compact', (_, e) => ({ messages: e.messages, tokensAfter: 24_000 }))
+  const messages = [{ role: 'user' as const, text: '待壓縮訊息', toolUses: [] }]
+  await start($)
+  await w.clock.settle()
+  await $.session.compact({ trigger: 'auto', messages })
+  await w.clock.settle()
+  await measure($, 0, 0)
+  await w.clock.settle()
+  expect(w.runs.map(argv => argv.slice(4))).toEqual([
+    [PATH, JSON.stringify(snapshot(26)), 'claude-code-discord'],
+    [PATH, JSON.stringify(snapshot(12)), 'claude-code-discord'],
+    [PATH, '', 'claude-code-discord'],
+  ])
+})
+
 test('未設定時不寫快照', {}, async ($, on) => {
   const w = world(on)
   let idReads = 0
