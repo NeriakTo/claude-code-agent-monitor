@@ -104,7 +104,7 @@ if [ "${FAKE_TMUX_FAIL:-}" = yes ]; then
 fi
 SH
   chmod +x commands/tmux || return 1
-  export PATH="$PWD/commands:$PATH" TMUX='假 socket' TMUX_PANE= FAKE_SESSION=claude-code-discord
+  export PATH="$PWD/commands:$PATH" TMUX='假 socket' TMUX_PANE= FAKE_SESSION=agent-main
 }
 
 session_unconfigured() {
@@ -116,17 +116,17 @@ session_unconfigured() {
 
 session_matches() {
   fake_tmux &&
-    run_snapshot "$PWD/context.json" '{"used_percent":26}' claude-code-discord &&
+    run_snapshot "$PWD/context.json" '{"used_percent":26}' agent-main &&
     [ "$(cat context.json)" = '{"used_percent":26}' ] &&
     [ "$(cat tmux-called)" = "$(printf '%s\n' display-message -p '#S')" ] &&
-    TMUX_PANE='%42' run_snapshot "$PWD/context.json" '' claude-code-discord &&
+    TMUX_PANE='%42' run_snapshot "$PWD/context.json" '' agent-main &&
     [ ! -e context.json ] &&
     [ "$(cat tmux-called)" = "$(printf '%s\n' display-message -p -t '%42' '#S')" ]
 }
 
 assert_snapshot_preserved() {
   printf '%s\n' '原始內容' > context.json &&
-    run_snapshot "$PWD/context.json" "$1" claude-code-discord 2>snapshot-error &&
+    run_snapshot "$PWD/context.json" "$1" agent-main 2>snapshot-error &&
     [ "$(cat context.json)" = '原始內容' ] &&
     [ ! -s snapshot-error ]
 }
@@ -140,7 +140,7 @@ session_differs() {
 
 session_prefix_only() {
   fake_tmux &&
-    FAKE_SESSION=claude-code-discord-2 assert_snapshot_preserved '{"used_percent":26}'
+    FAKE_SESSION=agent-main-2 assert_snapshot_preserved '{"used_percent":26}'
 }
 
 session_outside_tmux() {

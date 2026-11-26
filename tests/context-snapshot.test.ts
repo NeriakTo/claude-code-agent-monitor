@@ -39,14 +39,14 @@ test('快照路徑預設為空字串並可從選項讀取', {}, () => {
 
 test('快照 tmux session 預設留空並可從選項讀取', {}, () => {
   expect(parseConfig(undefined)).toHaveProperty('contextSnapshotTmuxSession', '')
-  expect(parseConfig({ contextSnapshotTmuxSession: 'claude-code-discord' }))
-    .toHaveProperty('contextSnapshotTmuxSession', 'claude-code-discord')
-  expect(parseConfig({ contextSnapshotTmuxSession: ' claude-code-discord ' }))
-    .toHaveProperty('contextSnapshotTmuxSession', ' claude-code-discord ')
+  expect(parseConfig({ contextSnapshotTmuxSession: 'agent-main' }))
+    .toHaveProperty('contextSnapshotTmuxSession', 'agent-main')
+  expect(parseConfig({ contextSnapshotTmuxSession: ' agent-main ' }))
+    .toHaveProperty('contextSnapshotTmuxSession', ' agent-main ')
 })
 
 test('啟動、壓縮與量測都將 tmux session 傳給快照腳本', {
-  options: { contextSnapshotPath: PATH, contextSnapshotTmuxSession: 'claude-code-discord' },
+  options: { contextSnapshotPath: PATH, contextSnapshotTmuxSession: 'agent-main' },
 }, async ($, on) => {
   const { w } = fixture(on)
   w.sessionContext = context(26)
@@ -59,9 +59,9 @@ test('啟動、壓縮與量測都將 tmux session 傳給快照腳本', {
   await measure($, 0, 0)
   await w.clock.settle()
   expect(w.runs.map(argv => argv.slice(4))).toEqual([
-    [PATH, JSON.stringify(snapshot(26)), 'claude-code-discord'],
-    [PATH, JSON.stringify(snapshot(12)), 'claude-code-discord'],
-    [PATH, '', 'claude-code-discord'],
+    [PATH, JSON.stringify(snapshot(26)), 'agent-main'],
+    [PATH, JSON.stringify(snapshot(12)), 'agent-main'],
+    [PATH, '', 'agent-main'],
   ])
 })
 
