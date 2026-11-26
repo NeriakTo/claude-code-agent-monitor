@@ -9,6 +9,7 @@ export type Config = {
   contextWarn: number
   contextCritical: number
   contextSnapshotPath: string
+  contextSnapshotTmuxSession: string
   /** The dispatch command split into argv, `{since24h}` still in place; empty when not set. */
   dispatchArgv: readonly string[]
   dispatchPattern: RegExp | null
@@ -140,6 +141,7 @@ export const parseConfig = (options: RawOptions | undefined): Config => {
   const o = options ?? {}
   const warn = num(o['contextWarnPercent'], 70, 1, 100)
   const quotaWarn = num(o['quotaWarnPercent'], 70, 1, 100)
+  const snapshotTmuxSession = o['contextSnapshotTmuxSession']
   return {
     channelNames: parsePairs(str(o['channelNames'])),
     replyTools: new Set(
@@ -152,6 +154,7 @@ export const parseConfig = (options: RawOptions | undefined): Config => {
     contextWarn: warn,
     contextCritical: Math.max(warn, num(o['contextCriticalPercent'], 85, 1, 100)),
     contextSnapshotPath: str(o['contextSnapshotPath']),
+    contextSnapshotTmuxSession: typeof snapshotTmuxSession === 'string' ? snapshotTmuxSession : '',
     dispatchArgv: splitArgv(str(o['dispatchCommand'])),
     dispatchPattern: toPattern(str(o['dispatchCommandPattern'])),
     runtimeNames: parsePairs(str(o['runtimeNames'])),
