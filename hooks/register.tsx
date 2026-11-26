@@ -93,24 +93,29 @@ const logError = ($: $, where: string, err: unknown): void => {
 }
 
 type ContextUsage = Pick<Awaited<ReturnType<$['session']['usage']>>['context'], 'window' | 'percent'>
-type SnapshotQueue = { pending: Promise<void> }
+type SnapshotQueue = { running: boolean; pending?: () => Promise<void> }
 
-const writeContextSnapshot = async ($: $, path: string, context: ContextUsage | undefined): Promise<void> => {
+const captureSnapshotMeasurement = async ($: $, context: ContextUsage | undefined) => {
+  const percent = context?.percent
+  if (
+    context === undefined || !Number.isFinite(context.window) || context.window <= 0 ||
+    typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100
+  ) return null
   try {
-    let payload = ''
-    const percent = context?.percent
-    if (
-      context !== undefined && Number.isFinite(context.window) && context.window > 0 &&
-      typeof percent === 'number' && Number.isFinite(percent) && percent >= 0 && percent <= 100
-    ) {
-      const measuredAt = await $.clock.now()
-      const sessionId = await $.session.id()
-      payload = JSON.stringify({
-        session_id: sessionId,
-        used_percent: Math.round(percent),
-        measured_at: new Date(measuredAt).toISOString(),
-      })
-    }
+    return { used_percent: Math.round(percent), measured_at: new Date(await $.clock.now()).toISOString() }
+  } catch (err) {
+    logError($, '警告：快照寫入失敗', err)
+    return undefined
+  }
+}
+
+const writeContextSnapshot = async (
+  $: $, path: string, measurement: ReturnType<typeof captureSnapshotMeasurement>,
+): Promise<void> => {
+  try {
+    const fields = await measurement
+    if (fields === undefined) return
+    const payload = fields === null ? '' : JSON.stringify({ session_id: await $.session.id(), ...fields })
     const result = await $.process.run(['/bin/sh', '-c', SNAPSHOT_SCRIPT, 'agent-monitor', path, payload], { timeoutMs: 5_000 })
     if (result.exitCode !== 0) logError($, '警告：快照寫入失敗', result.stderr || `結束代碼 ${result.exitCode}`)
   } catch (err) {
@@ -118,11 +123,23 @@ const writeContextSnapshot = async ($: $, path: string, context: ContextUsage | 
   }
 }
 
-const saveContextSnapshot = ($: $, path: string, queue: SnapshotQueue, context: ContextUsage | undefined): Promise<void> | undefined => {
+const saveContextSnapshot = async ($: $, path: string, queue: SnapshotQueue, context: ContextUsage | undefined): Promise<void> => {
   if (path === '') return
-  // 依量測順序完成檔案替換，避免較慢的舊量測蓋過新值。
-  queue.pending = queue.pending.then(() => writeContextSnapshot($, path, context))
-  return queue.pending
+  // 排隊前擷取量測時間。正在寫入時，新量測只取代待寫的那一筆。
+  const measurement = captureSnapshotMeasurement($, context)
+  queue.pending = () => writeContextSnapshot($, path, measurement)
+  if (queue.running) return
+
+  queue.running = true
+  try {
+    while (queue.pending !== undefined) {
+      const write = queue.pending
+      queue.pending = undefined
+      await write()
+    }
+  } finally {
+    queue.running = false
+  }
 }
 
 // ---------- the inbox ----------
@@ -573,7 +590,7 @@ const readModel = async ($: $, cfg: Config) => {
 
 export const register: Register = (on, options) => {
   const cfg = parseConfig(options)
-  const snapshotQueue: SnapshotQueue = { pending: Promise.resolve() }
+  const snapshotQueue: SnapshotQueue = { running: false }
 
   on('session.start', async ($, e, next) => {
     try {
@@ -618,7 +635,7 @@ export const register: Register = (on, options) => {
       }
       // Claude's own windows are read before the first draw; the command runs in the background.
       const context = await readClaudeQuota($)
-      const snapshot = saveContextSnapshot($, cfg.contextSnapshotPath, snapshotQueue, context)
+      void saveContextSnapshot($, cfg.contextSnapshotPath, snapshotQueue, context)
       if (cfg.statusLine) await readStatusSources($, cfg)
       await pushStatus($, cfg) // off: clears a line a previous load may have left
       void refreshQuota($, cfg)
@@ -626,7 +643,6 @@ export const register: Register = (on, options) => {
         await $.ui.open({ id: PANE, title: 'Agent monitor' })
         void refreshPane($, cfg, true)
       }
-      await snapshot
     } catch (err) {
       logError($, 'timers', err)
     }
@@ -710,7 +726,7 @@ export const register: Register = (on, options) => {
           const usage = await $.session.usage().catch(() => undefined)
           const window = usage?.context.window ?? 0
           const percent = result.tokensAfter === undefined ? undefined : result.tokensAfter / window * 100
-          await saveContextSnapshot($, cfg.contextSnapshotPath, snapshotQueue, { window, percent })
+          void saveContextSnapshot($, cfg.contextSnapshotPath, snapshotQueue, { window, percent })
         }
       }
     } catch (err) {
@@ -721,9 +737,7 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     try {
-      const snapshot = e.changed.includes('context')
-        ? saveContextSnapshot($, cfg.contextSnapshotPath, snapshotQueue, e.context)
-        : undefined
+      if (e.changed.includes('context')) void saveContextSnapshot($, cfg.contextSnapshotPath, snapshotQueue, e.context)
       const percent = typeof e.context.percent === 'number' ? e.context.percent : null
       let shouldAlert = false
       await update($, contextA, prev => {
@@ -740,7 +754,6 @@ export const register: Register = (on, options) => {
         await update($, quotaA, q => ({ ...q, claude: rows }))
       }
       if (cfg.statusLine) await pushStatus($, cfg)
-      await snapshot
     } catch (err) {
       logError($, 'session.measure', err)
     }
