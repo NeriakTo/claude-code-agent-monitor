@@ -138,6 +138,7 @@ Options are the plugin's `userConfig` fields. Each one appears as a row in Claud
 | `longActionMinutes` | `10` | A tool call running this long is shown in the warning color. Clamped to 0 to 1440. |
 | `contextWarnPercent` | `70` | Context usage at or above this shows `restart soon` and one toast each time it is crossed. Clamped to 1 to 100. |
 | `contextCriticalPercent` | `85` | Context usage at or above this shows `restart now` in the error color. Never below `contextWarnPercent`. |
+| `contextSnapshotPath` | `""` | 選填的本機 JSON 快照路徑，支援絕對路徑及 `~/`。留空時不執行快照指令。啟用後透過 POSIX shell 在同目錄寫入暫存檔，再改名覆寫，必要時會建立目錄。快照含引擎的 `session_id`、已用百分比整數 `used_percent` 和 UTC 時間 `measured_at`。無有效讀值時移除舊快照。寫入失敗只會在除錯紀錄留一行警告。 |
 | `dispatchCommand` | `""` | A read-only command that prints dispatch events as JSONL (see [Dispatch JSONL contract](#dispatch-jsonl-contract)). `{since24h}` is replaced with an RFC 3339 time 24 hours ago. Empty hides the `DISPATCHES` card and runs nothing. |
 | `dispatchCommandPattern` | `""` | A regular expression; a Bash call whose command matches it is labelled `dispatch -> <runtime>` (runtime taken from `--runtime <x>`), and the dispatches are re-read 5 s after it starts. Empty recognises nothing. |
 | `runtimeNames` | `""` | Display names for runtime ids, as `id=name` pairs separated by commas (e.g. `codex-cli=Codex`). Empty shows the runtime id. |
