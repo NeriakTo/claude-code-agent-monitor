@@ -8,6 +8,7 @@ export type Config = {
   longActionMs: number
   contextWarn: number
   contextCritical: number
+  contextSnapshotPath: string
   /** The dispatch command split into argv, `{since24h}` still in place; empty when not set. */
   dispatchArgv: readonly string[]
   dispatchPattern: RegExp | null
@@ -150,6 +151,7 @@ export const parseConfig = (options: RawOptions | undefined): Config => {
     longActionMs: num(o['longActionMinutes'], 10, 0, 24 * 60) * MINUTE,
     contextWarn: warn,
     contextCritical: Math.max(warn, num(o['contextCriticalPercent'], 85, 1, 100)),
+    contextSnapshotPath: str(o['contextSnapshotPath']),
     dispatchArgv: splitArgv(str(o['dispatchCommand'])),
     dispatchPattern: toPattern(str(o['dispatchCommandPattern'])),
     runtimeNames: parsePairs(str(o['runtimeNames'])),

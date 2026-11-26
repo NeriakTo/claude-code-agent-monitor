@@ -7,6 +7,7 @@ import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 import type { Action, AgentRun, ContextMark, CustomView, DispatchView, Pending, Placement, QuotaView, RecentRun, SessionInfo, StatusInfo } from '../types'
 import { parseConfig, resolveCards } from './config'
 import type { Config } from './config'
+import { SNAPSHOT_SCRIPT } from './context-snapshot'
 import { dispatchArgv, dispatchFromRun, oneLine } from './dispatch'
 import {
   addPending,
@@ -88,6 +89,56 @@ const logError = ($: $, where: string, err: unknown): void => {
     $.ui.log(`agent-monitor ${where}: ${oneLine(errText(err))}`, { to: 'debug' })
   } catch {
     // Not even the debug log: give up quietly.
+  }
+}
+
+type ContextUsage = Pick<Awaited<ReturnType<$['session']['usage']>>['context'], 'window' | 'percent'>
+type SnapshotQueue = { running: boolean; pending?: () => Promise<void> }
+
+const captureSnapshotMeasurement = async ($: $, context: ContextUsage | undefined) => {
+  const percent = context?.percent
+  if (
+    context === undefined || !Number.isFinite(context.window) || context.window <= 0 ||
+    typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100
+  ) return null
+  try {
+    return { used_percent: Math.round(percent), measured_at: new Date(await $.clock.now()).toISOString() }
+  } catch (err) {
+    logError($, '警告：快照寫入失敗', err)
+    return undefined
+  }
+}
+
+const writeContextSnapshot = async (
+  $: $, path: string, measurement: ReturnType<typeof captureSnapshotMeasurement>,
+): Promise<void> => {
+  try {
+    const fields = await measurement
+    if (fields === undefined) return
+    const payload = fields === null ? '' : JSON.stringify({ session_id: await $.session.id(), ...fields })
+    const result = await $.process.run(['/bin/sh', '-c', SNAPSHOT_SCRIPT, 'agent-monitor', path, payload], { timeoutMs: 5_000 })
+    if (result.exitCode !== 0) logError($, '警告：快照寫入失敗', result.stderr || `結束代碼 ${result.exitCode}`)
+  } catch (err) {
+    logError($, '警告：快照寫入失敗', err)
+  }
+}
+
+const saveContextSnapshot = async ($: $, path: string, queue: SnapshotQueue, context: ContextUsage | undefined): Promise<void> => {
+  if (path === '') return
+  // 排隊前擷取量測時間。正在寫入時，新量測只取代待寫的那一筆。
+  const measurement = captureSnapshotMeasurement($, context)
+  queue.pending = () => writeContextSnapshot($, path, measurement)
+  if (queue.running) return
+
+  queue.running = true
+  try {
+    while (queue.pending !== undefined) {
+      const write = queue.pending
+      queue.pending = undefined
+      await write()
+    }
+  } finally {
+    queue.running = false
   }
 }
 
@@ -228,12 +279,13 @@ const readQuota = async ($: $, cfg: Config): Promise<Pick<QuotaView, 'external' 
  * Claude's windows from $.session.usage(), then the quotaCommand when one is set. A failing command
  * keeps its last rows (they turn stale on their own) and only the QUOTA card shows why.
  */
-const readClaudeQuota = async ($: $): Promise<void> => {
+const readClaudeQuota = async ($: $): Promise<ContextUsage | undefined> => {
   try {
     const now = await $.clock.now()
     const usage = await $.session.usage()
     const rows = claudeRows(usage.rateLimits ?? [], now)
     await update($, quotaA, q => ({ ...q, claude: rows }))
+    return usage.context
   } catch (err) {
     logError($, 'session.usage', err)
   }
@@ -538,8 +590,16 @@ const readModel = async ($: $, cfg: Config) => {
 
 export const register: Register = (on, options) => {
   const cfg = parseConfig(options)
+  let warnSnapshotPath = cfg.contextSnapshotPath !== '' &&
+    !cfg.contextSnapshotPath.startsWith('/') && !cfg.contextSnapshotPath.startsWith('~/')
+  const contextSnapshotPath = warnSnapshotPath ? '' : cfg.contextSnapshotPath
+  const snapshotQueue: SnapshotQueue = { running: false }
 
   on('session.start', async ($, e, next) => {
+    if (warnSnapshotPath) {
+      warnSnapshotPath = false
+      logError($, '警告：忽略 contextSnapshotPath', '快照路徑必須是絕對路徑或以 ~/ 開頭')
+    }
     try {
       const now = await $.clock.now()
       await update($, actionsA, () => [])
@@ -581,7 +641,8 @@ export const register: Register = (on, options) => {
         if (seconds !== undefined) $.clock.every(seconds * 1000, () => void onCustomTimer($, cfg, card))
       }
       // Claude's own windows are read before the first draw; the command runs in the background.
-      await readClaudeQuota($)
+      const context = await readClaudeQuota($)
+      void saveContextSnapshot($, contextSnapshotPath, snapshotQueue, context)
       if (cfg.statusLine) await readStatusSources($, cfg)
       await pushStatus($, cfg) // off: clears a line a previous load may have left
       void refreshQuota($, cfg)
@@ -667,6 +728,13 @@ export const register: Register = (on, options) => {
       if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
         const now = await $.clock.now()
         await saveSession($, info => ({ ...info, compactCount: info.compactCount + 1, compactAt: now }))
+        if (contextSnapshotPath !== '') {
+          // 壓縮結果先於引擎的對話更新，使用壓縮後的 token 數。
+          const usage = await $.session.usage().catch(() => undefined)
+          const window = usage?.context.window ?? 0
+          const percent = result.tokensAfter === undefined ? undefined : result.tokensAfter / window * 100
+          void saveContextSnapshot($, contextSnapshotPath, snapshotQueue, { window, percent })
+        }
       }
     } catch (err) {
       logError($, 'session.compact', err)
@@ -676,6 +744,7 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     try {
+      if (e.changed.includes('context')) void saveContextSnapshot($, contextSnapshotPath, snapshotQueue, e.context)
       const percent = typeof e.context.percent === 'number' ? e.context.percent : null
       let shouldAlert = false
       await update($, contextA, prev => {

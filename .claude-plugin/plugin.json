@@ -51,6 +51,12 @@
       "description": "Context usage at or above this is shown in the error color.",
       "default": 85
     },
+    "contextSnapshotPath": {
+      "type": "string",
+      "title": "對話用量快照路徑",
+      "description": "將目前對話的 context 已用百分比寫入本機 JSON 檔。留空時不寫檔。",
+      "default": ""
+    },
     "dispatchCommand": {
       "type": "string",
       "title": "Dispatch event command",

@@ -138,6 +138,7 @@ Options are the plugin's `userConfig` fields. Each one appears as a row in Claud
 | `longActionMinutes` | `10` | A tool call running this long is shown in the warning color. Clamped to 0 to 1440. |
 | `contextWarnPercent` | `70` | Context usage at or above this shows `restart soon` and one toast each time it is crossed. Clamped to 1 to 100. |
 | `contextCriticalPercent` | `85` | Context usage at or above this shows `restart now` in the error color. Never below `contextWarnPercent`. |
+| `contextSnapshotPath` | `""` | 選填的本機 JSON 快照路徑，只接受絕對路徑及以 `~/` 開頭的路徑。留空或格式無效時不執行快照指令，格式無效會在啟動時記一行除錯警告。啟用後透過 POSIX shell 在同目錄寫入暫存檔，再改名覆寫，必要時會建立目錄。快照含引擎的 `session_id`、已用百分比整數 `used_percent` 和 UTC 時間 `measured_at`。無有效讀值時移除舊快照。路徑由使用者設定，父目錄的符號連結會照常跟隨。目標檔本身若為符號連結，會拒絕寫入或移除。快照操作失敗時，除錯紀錄會留一行警告。 |
 | `dispatchCommand` | `""` | A read-only command that prints dispatch events as JSONL (see [Dispatch JSONL contract](#dispatch-jsonl-contract)). `{since24h}` is replaced with an RFC 3339 time 24 hours ago. Empty hides the `DISPATCHES` card and runs nothing. |
 | `dispatchCommandPattern` | `""` | A regular expression; a Bash call whose command matches it is labelled `dispatch -> <runtime>` (runtime taken from `--runtime <x>`), and the dispatches are re-read 5 s after it starts. Empty recognises nothing. |
 | `runtimeNames` | `""` | Display names for runtime ids, as `id=name` pairs separated by commas (e.g. `codex-cli=Codex`). Empty shows the runtime id. |
@@ -491,8 +492,11 @@ Issues and pull requests are welcome. Keep changes in line with the design notes
 ```sh
 claude plugin validate .                         # manifest and hooks module, as the engine reads them
 claude plugin test .                             # runs tests/*.test.ts against the engine
+/bin/sh tests/context-snapshot.sh                # runs the snapshot script on disk (Node.js 22.6+)
 npx -y -p typescript@5.9.3 tsc -p . --noEmit     # type check
 ```
+
+The hook test loader blocks imports of child-process APIs. Run the shell suite separately to exercise the actual snapshot command in a temporary directory.
 
 `claude plugin test` also prints sample panes at 48, 60 and 100 columns, which is the quickest way to see a layout change. `scripts/write-renders.sh` runs the suite and writes the band and pane samples (normal and arrange mode, 60 and 100 columns) to `docs/renders/`; run it after a layout change and commit the result. It also writes the SVG pictures this README shows (`band-100.svg`, `pane-quota-ctx-60.svg` and `pane-arrange-60.svg`), drawn from the same samples with each piece's own color, so they stay in step with the plain text.
 
